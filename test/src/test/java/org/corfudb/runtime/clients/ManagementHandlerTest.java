@@ -2,7 +2,7 @@ package org.corfudb.runtime.clients;
 
 import com.google.common.collect.ImmutableSet;
 
-import org.corfudb.format.Types.NodeMetrics;
+import org.corfudb.format.Types.NodeView;
 import org.corfudb.infrastructure.AbstractServer;
 import org.corfudb.infrastructure.BaseServer;
 import org.corfudb.infrastructure.LayoutServer;
@@ -115,7 +115,7 @@ public class ManagementHandlerTest extends AbstractClientTest {
     @Test
     public void sendHeartbeatRequest()
             throws Exception {
-        byte[] buffer = client.sendHeartbeatRequest().get();
-        assertThat(NodeMetrics.parseFrom(buffer)).isNotNull();
+        NodeView nodeView = client.sendHeartbeatRequest().get();
+        assertThat(nodeView).isNotNull();
     }
 }

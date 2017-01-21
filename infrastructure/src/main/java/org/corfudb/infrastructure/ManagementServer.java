@@ -11,8 +11,8 @@ import javax.annotation.Nonnull;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
-import org.corfudb.format.Types.NodeMetrics;
-
+import org.corfudb.format.Types.NodeView;
+import org.corfudb.format.Types.ServerMetrics;
 import org.corfudb.infrastructure.orchestrator.Orchestrator;
 
 import org.corfudb.protocols.wireprotocol.CorfuMsg;
@@ -265,19 +265,24 @@ public class ManagementServer extends AbstractServer {
     /**
      * Handles the heartbeat request.
      * It accumulates the metrics required to build
-     * and send the response(NodeMetrics).
+     * and send the response.
+     * The response comprises of the local nodeMetrics and
+     * this node's view of the cluster (NodeView).
      *
      * @param msg corfu message containing HEARTBEAT_REQUEST
      * @param ctx netty ChannelHandlerContext
      * @param r   server router
      */
     @ServerHandler(type = CorfuMsgType.HEARTBEAT_REQUEST)
-    public void handleHeartbeatRequest(CorfuMsg msg, ChannelHandlerContext ctx, IServerRouter r) {
-        // Currently builds a default instance of the model.
-        // TODO: Collect metrics from Layout, Sequencer and LogUnit Servers.
-        NodeMetrics nodeMetrics = NodeMetrics.getDefaultInstance();
-        r.sendResponse(ctx, msg, new CorfuPayloadMsg<>(CorfuMsgType.HEARTBEAT_RESPONSE,
-                nodeMetrics.toByteArray()));
+    public void handleHearbeatRequest(CorfuMsg msg, ChannelHandlerContext ctx, IServerRouter r) {
+        ServerMetrics localServerMetrics = getManagementAgent().getLocalServerMetrics();
+        NodeView.Builder nodeViewBuilder = NodeView.newBuilder()
+                .setEndpoint(getLocalEndpoint());
+        if (localServerMetrics != null) {
+            nodeViewBuilder.setServerMetrics(getManagementAgent().getLocalServerMetrics());
+        }
+        r.sendResponse(ctx, msg, CorfuMsgType.HEARTBEAT_RESPONSE
+                .payloadMsg(nodeViewBuilder.build().toByteArray()));
     }
 
     /**

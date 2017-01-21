@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+
+import org.corfudb.format.Types.SequencerMetrics;
 import org.corfudb.protocols.wireprotocol.CorfuMsg;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.CorfuPayloadMsg;
@@ -370,6 +372,20 @@ public class SequencerServer extends AbstractServer {
                         + " readyStateEpoch = {}",
                 initialToken, streamTailToGlobalTailMap, readyStateEpoch);
         r.sendResponse(ctx, msg, CorfuMsgType.ACK.msg());
+    }
+
+    /**
+     * Service an incoming metrics request with the metrics response.
+     */
+    @ServerHandler(type = CorfuMsgType.SEQUENCER_METRICS_REQUEST)
+    public void handleMetricsRequest(CorfuMsg msg, ChannelHandlerContext ctx, IServerRouter r) {
+        // Sequencer Ready flag is set to true as this message will be responded to only if the
+        // sequencer is in a ready state.
+        SequencerMetrics sequencerMetrics = SequencerMetrics.newBuilder()
+                .setSequencerReady(true)
+                .build();
+        r.sendResponse(ctx, msg, new CorfuPayloadMsg<>(CorfuMsgType.SEQUENCER_METRICS_RESPONSE,
+                sequencerMetrics.toByteArray()));
     }
 
     /**

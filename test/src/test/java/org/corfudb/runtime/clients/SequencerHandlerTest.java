@@ -1,6 +1,7 @@
 package org.corfudb.runtime.clients;
 
 import com.google.common.collect.ImmutableSet;
+import org.corfudb.format.Types.SequencerMetrics;
 import org.corfudb.infrastructure.AbstractServer;
 import org.corfudb.infrastructure.SequencerServer;
 import org.corfudb.protocols.wireprotocol.Token;
@@ -39,6 +40,13 @@ public class SequencerHandlerTest extends AbstractClientTest {
     @Before
     public void bootstrapSequencer() {
         client.bootstrap(0L, Collections.EMPTY_MAP, 0L);
+    }
+
+    @Test
+    public void requestSequencerMetrics()
+            throws Exception {
+        SequencerMetrics sequencerMetrics = client.requestMetrics().get();
+        assertThat(sequencerMetrics.getSequencerReady()).isNotNull();
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.util.concurrent.CompletableFuture;
 
 import javax.annotation.Nonnull;
 
+import org.corfudb.format.Types.NodeView;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.DetectorMsg;
 import org.corfudb.protocols.wireprotocol.orchestrator.AddNodeRequest;
@@ -74,7 +75,7 @@ public class ManagementClient extends AbstractClient {
      * @return A future which will return the node health metrics of
      * the node which was requested for the heartbeat.
      */
-    public CompletableFuture<byte[]> sendHeartbeatRequest() {
+    public CompletableFuture<NodeView> sendHeartbeatRequest() {
         return sendMessageWithFuture(CorfuMsgType.HEARTBEAT_REQUEST.msg());
     }
 

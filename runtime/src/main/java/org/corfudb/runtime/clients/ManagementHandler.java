@@ -1,11 +1,14 @@
 package org.corfudb.runtime.clients;
 
+import com.google.protobuf.InvalidProtocolBufferException;
+
 import io.netty.channel.ChannelHandlerContext;
 
 import java.lang.invoke.MethodHandles;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.corfudb.format.Types.NodeView;
 import org.corfudb.protocols.wireprotocol.CorfuMsg;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.CorfuPayloadMsg;
@@ -48,7 +51,11 @@ public class ManagementHandler implements IClient, IHandler<ManagementClient> {
     @ClientHandler(type = CorfuMsgType.HEARTBEAT_RESPONSE)
     private static Object handleHeartbeatResponse(CorfuPayloadMsg<byte[]> msg,
                                                   ChannelHandlerContext ctx, IClientRouter r) {
-        return msg.getPayload();
+        try {
+            return NodeView.parseFrom(msg.getPayload());
+        } catch (InvalidProtocolBufferException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @ClientHandler(type = CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR)
