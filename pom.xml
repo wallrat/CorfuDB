@@ -18,6 +18,7 @@
         <module>logReader</module>
         <module>debian</module>
         <module>generator</module>
+        <module>benchmark</module>
     </modules>
 
     <packaging>pom</packaging>

@@ -23,6 +23,7 @@ public class CorfuTableTest extends AbstractViewTest {
         @Getter
         final CorfuTable.IndexFunction<String, String, String> indexFunction;
 
+
         @Getter
         final CorfuTable.ProjectionFunction<String, String, String, String> projectionFunction
                 = (i, s) -> s.map(entry -> entry.getValue());
