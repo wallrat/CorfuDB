@@ -14,8 +14,12 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.infra.Blackhole;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 
@@ -67,7 +71,15 @@ public class CorfuTableBenchmark {
 
         CorfuTable<Key, Key, CompositeKeyIndexer, UUID> table;
 
+        List<UUID> leftKeys;
+
+        List<UUID> rightKeys;
+
         Set<Key> keys;
+
+        double subsetRatio = .02;
+
+        Random rand = new Random();
 
         @Override
         public void setup() {
@@ -81,12 +93,27 @@ public class CorfuTableBenchmark {
                     .open();
 
             keys = new HashSet<>();
+            createKeySpace();
+        }
+
+        private void createKeySpace() {
+            leftKeys = new ArrayList<>();
+
+            for (int x = 0; x < num; x++) {
+                leftKeys.add(UUID.randomUUID());
+            }
+
+            // Generate a random subset for the right keys. This is
+            // required to create collisions in the secondary index (i.e
+            // one key in the secondary index can reference multiple values)
+            Collections.shuffle(leftKeys);
+            rightKeys = leftKeys.subList(0, (int) (num * subsetRatio));
         }
 
         void write(int batch) {
-            for (int x = 0; x < num; x++) {
-                UUID left = UUID.randomUUID();
-                UUID right = UUID.randomUUID();
+            for (UUID left : leftKeys) {
+                // Select a random element from the rightKeys list
+                UUID right = rightKeys.get(rand.nextInt(rightKeys.size()));
                 Key key = new Key(left, right);
                 table.put(key, key);
                 keys.add(key);
@@ -97,6 +124,8 @@ public class CorfuTableBenchmark {
         public void teardown() {
             super.teardown();
             keys.clear();
+            rightKeys.clear();
+            leftKeys.clear();
         }
     }
 
