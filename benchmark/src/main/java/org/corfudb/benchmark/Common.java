@@ -17,8 +17,14 @@ public class Common {
     @Param("1000")
     int num;
 
+    @Param("9000")
+    String port;
+
     public void setup() {
-        rt = new CorfuRuntime("localhost:9000").connect();
+        System.out.println("stats");
+        System.out.println(port);
+        System.out.println(num);
+        rt = new CorfuRuntime("localhost:" + port).connect();
     }
 
     public void teardown() {

@@ -168,6 +168,10 @@ public class CorfuTableBenchmark {
         w.write(w.num);
         w.rt.getObjectsView().TXEnd();
         bh.consume(w.num);
+
+        // (JMH Bug) a param variable has to be accessed from an annotated
+        // benchmark method for the annotation processor to generate code for that param
+        bh.consume(w.port);
     }
 
     @Benchmark

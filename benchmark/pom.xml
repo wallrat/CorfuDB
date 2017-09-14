@@ -28,5 +28,10 @@
             <artifactId>jmh-generator-annprocess</artifactId>
             <version>1.5.1</version>
         </dependency>
+        <dependency>
+            <groupId>com.offbytwo</groupId>
+            <artifactId>docopt</artifactId>
+            <version>0.6.0.20150202</version>
+        </dependency>
     </dependencies>
 </project>
