@@ -84,6 +84,7 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
     private final ServerContext serverContext;
     private final AtomicLong globalTail = new AtomicLong(0L);
     private Map<String, SegmentHandle> writeChannels;
+    private Map<FileChannel, ByteBuffer> pendingWrites;
     private Set<FileChannel> channelsToSync;
     private MultiReadWriteLock segmentLocks = new MultiReadWriteLock();
     private long lastSegment;
@@ -103,6 +104,7 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
         }
 
         writeChannels = new ConcurrentHashMap();
+        pendingWrites = new ConcurrentHashMap<>();
         channelsToSync = new HashSet<>();
         this.noVerify = noVerify;
         this.serverContext = serverContext;
@@ -318,7 +320,12 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
     public void sync(boolean force) throws IOException {
         if (force) {
             for (FileChannel ch : channelsToSync) {
+                ByteBuffer buf = pendingWrites.get(ch);
+                buf.flip();
+                ch.write(buf);
                 ch.force(true);
+                buf.clear();
+                // remove buffer from pending writes?
             }
         }
         log.debug("Sync'd {} channels", channelsToSync.size());
@@ -389,6 +396,7 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
                 }
                 sh.close();
                 writeChannels.remove(sh.getFileName());
+                pendingWrites.remove(sh.getLogChannel());
             }
         }
 
@@ -931,18 +939,27 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
 
         recordBuf.putShort(RECORD_DELIMITER);
         recordBuf.put(record.array());
-        recordBuf.flip();
+        //recordBuf.flip();
 
         long channelOffset;
 
         try (MultiReadWriteLock.AutoCloseableLock ignored =
                      segmentLocks.acquireWriteLock(fh.getSegment())) {
-            channelOffset = fh.logChannel.position() + Short.BYTES + METADATA_SIZE;
-            fh.logChannel.write(recordBuf);
+            ByteBuffer buf = pendingWrites.get(fh.logChannel);
+            if (buf == null) {
+                pendingWrites.put(fh.logChannel, recordBuf);
+                channelOffset = fh.logChannel.position() + Short.BYTES + METADATA_SIZE;
+            } else {
+                channelOffset = fh.logChannel.position() +  buf.position() + Short.BYTES + METADATA_SIZE;
+                recordBuf.flip();
+                buf.put(recordBuf);
+            }
+            //fh.logChannel.write(recordBuf);
             channelsToSync.add(fh.logChannel);
             syncTailSegment(address);
         }
 
+        log.warn("Offset for address {} is {}", address, channelOffset);
         return new AddressMetaData(metadata.getChecksum(), metadata.getLength(), channelOffset);
     }
 
