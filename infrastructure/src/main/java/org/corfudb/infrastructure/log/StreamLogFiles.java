@@ -932,13 +932,7 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
         LogEntry logEntry = getLogEntry(address, entry);
         Metadata metadata = getMetadata(logEntry);
 
-        ByteBuffer record = getByteBuffer(metadata, logEntry);
 
-        ByteBuffer recordBuf = ByteBuffer.allocate(Short.BYTES // Delimiter
-                + record.capacity());
-
-        recordBuf.putShort(RECORD_DELIMITER);
-        recordBuf.put(record.array());
         //recordBuf.flip();
 
         long channelOffset;
@@ -947,12 +941,21 @@ public class StreamLogFiles implements StreamLog, StreamLogWithRankedAddressSpac
                      segmentLocks.acquireWriteLock(fh.getSegment())) {
             ByteBuffer buf = pendingWrites.get(fh.logChannel);
             if (buf == null) {
+
+                ByteBuffer recordBuf = ByteBuffer.allocate(Short.BYTES // Delimiter
+                        + metadata.getSerializedSize() + logEntry.getSerializedSize());
+
+                recordBuf.putShort(RECORD_DELIMITER);
+                recordBuf.put(metadata.toByteArray());
+                recordBuf.put(logEntry.toByteArray());
+
                 pendingWrites.put(fh.logChannel, recordBuf);
                 channelOffset = fh.logChannel.position() + Short.BYTES + METADATA_SIZE;
             } else {
                 channelOffset = fh.logChannel.position() +  buf.position() + Short.BYTES + METADATA_SIZE;
-                recordBuf.flip();
-                buf.put(recordBuf);
+                buf.putShort(RECORD_DELIMITER);
+                buf.put(metadata.toByteArray());
+                buf.put(logEntry.toByteArray());
             }
             //fh.logChannel.write(recordBuf);
             channelsToSync.add(fh.logChannel);
