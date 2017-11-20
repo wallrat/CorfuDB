@@ -9,6 +9,8 @@ import org.corfudb.infrastructure.ServerContext;
 import org.corfudb.infrastructure.ServerContextBuilder;
 import org.corfudb.infrastructure.TestLayoutBuilder;
 import org.corfudb.infrastructure.TestServerRouter;
+import org.corfudb.infrastructure.management.FailureDetector;
+import org.corfudb.infrastructure.management.HealingDetector;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.TokenResponse;
 import org.corfudb.runtime.CorfuRuntime;
@@ -22,6 +24,7 @@ import org.corfudb.runtime.view.stream.IStreamView;
 import org.corfudb.util.CFUtils;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
@@ -101,6 +104,7 @@ public class ManagementViewTest extends AbstractViewTest {
         setAggressiveTimeouts(l, corfuRuntime,
                 getManagementServer(SERVERS.PORT_0).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_1).getCorfuRuntime());
+        setAggressiveDetectorTimeouts(SERVERS.PORT_0, SERVERS.PORT_1);
 
         failureDetected.acquire();
 
@@ -176,6 +180,7 @@ public class ManagementViewTest extends AbstractViewTest {
                 getManagementServer(SERVERS.PORT_0).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_1).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_2).getCorfuRuntime());
+        setAggressiveDetectorTimeouts(SERVERS.PORT_0, SERVERS.PORT_1, SERVERS.PORT_2);
 
         // Adding a rule on SERVERS.PORT_1 to drop all packets
         addServerRule(SERVERS.PORT_1, new TestRule().always().drop());
@@ -192,6 +197,20 @@ public class ManagementViewTest extends AbstractViewTest {
         assertThat(l2.getEpoch()).isEqualTo(2L);
         assertThat(l2.getLayoutServers().size()).isEqualTo(2);
         assertThat(l2.getLayoutServers().contains(SERVERS.ENDPOINT_1)).isFalse();
+    }
+
+    private void setAggressiveDetectorTimeouts(int... managementServersPorts) {
+        Arrays.stream(managementServersPorts).forEach(port -> {
+            FailureDetector failureDetector = (FailureDetector) getManagementServer(port)
+                    .getFailureDetector();
+            failureDetector.setInitPeriodDuration(PARAMETERS.TIMEOUT_VERY_SHORT.toMillis());
+            failureDetector.setPeriodDelta(PARAMETERS.TIMEOUT_VERY_SHORT.toMillis());
+            failureDetector.setMaxPeriodDuration(PARAMETERS.TIMEOUT_SHORT.toMillis());
+
+            HealingDetector healingDetector = (HealingDetector) getManagementServer(port)
+                    .getHealingDetector();
+            healingDetector.setDetectionPeriodDuration(PARAMETERS.TIMEOUT_VERY_SHORT.toMillis());
+        });
     }
 
     protected Layout getManagementTestLayout()
@@ -239,6 +258,8 @@ public class ManagementViewTest extends AbstractViewTest {
                 getManagementServer(SERVERS.PORT_0).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_1).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_2).getCorfuRuntime());
+
+        setAggressiveDetectorTimeouts(SERVERS.PORT_0, SERVERS.PORT_1, SERVERS.PORT_2);
 
         return l;
     }
@@ -831,6 +852,7 @@ public class ManagementViewTest extends AbstractViewTest {
                 getManagementServer(SERVERS.PORT_0).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_1).getCorfuRuntime(),
                 getManagementServer(SERVERS.PORT_2).getCorfuRuntime());
+        setAggressiveDetectorTimeouts(SERVERS.PORT_0, SERVERS.PORT_1, SERVERS.PORT_2);
 
         corfuRuntime.getRouter(SERVERS.ENDPOINT_0).getClient(ManagementClient.class)
                 .initiateFailureHandler().get();

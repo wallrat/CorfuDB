@@ -13,11 +13,11 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
-public class FailureDetectorMsg implements ICorfuPayload<FailureDetectorMsg> {
+public class DetectorMsg implements ICorfuPayload<DetectorMsg> {
     private Set<String> failedNodes;
     private Set<String> healedNodes;
 
-    public FailureDetectorMsg(ByteBuf buf) {
+    public DetectorMsg(ByteBuf buf) {
         failedNodes = ICorfuPayload.setFromBuffer(buf, String.class);
         healedNodes = ICorfuPayload.setFromBuffer(buf, String.class);
     }

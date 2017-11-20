@@ -25,21 +25,22 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import org.corfudb.format.Types.NodeMetrics;
-import org.corfudb.infrastructure.management.IFailureDetectorPolicy;
+
+import org.corfudb.infrastructure.management.IDetector;
 import org.corfudb.infrastructure.management.PollReport;
 import org.corfudb.infrastructure.management.ReconfigurationEventHandler;
 import org.corfudb.infrastructure.orchestrator.Orchestrator;
 import org.corfudb.protocols.wireprotocol.CorfuMsg;
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
 import org.corfudb.protocols.wireprotocol.CorfuPayloadMsg;
-import org.corfudb.protocols.wireprotocol.FailureDetectorMsg;
 import org.corfudb.protocols.wireprotocol.orchestrator.OrchestratorRequest;
+import org.corfudb.protocols.wireprotocol.DetectorMsg;
 import org.corfudb.runtime.CorfuRuntime;
 import org.corfudb.runtime.clients.LayoutClient;
 import org.corfudb.runtime.clients.ManagementClient;
 import org.corfudb.runtime.clients.SequencerClient;
 import org.corfudb.runtime.exceptions.QuorumUnreachableException;
-import org.corfudb.runtime.view.IFailureHandlerPolicy;
+import org.corfudb.runtime.view.IReconfigurationHandlerPolicy;
 import org.corfudb.runtime.view.Layout;
 import org.corfudb.runtime.view.QuorumFuturesFactory;
 
@@ -72,13 +73,17 @@ public class ManagementServer extends AbstractServer {
 
     private CorfuRuntime corfuRuntime;
     /**
-     * Policy to be used to detect failures.
+     * Detectors to be used to detect failures and healing.
      */
-    private IFailureDetectorPolicy failureDetectorPolicy;
+    @Getter
+    private IDetector failureDetector;
+    @Getter
+    private IDetector healingDetector;
     /**
-     * Policy to be used to handle failures.
+     * Policy to be used to handle failures/healing.
      */
-    private IFailureHandlerPolicy failureHandlerPolicy;
+    private IReconfigurationHandlerPolicy failureHandlerPolicy;
+    private IReconfigurationHandlerPolicy healingHandlerPolicy;
     /**
      * Latest layout received from bootstrap or the runtime.
      */
@@ -103,20 +108,26 @@ public class ManagementServer extends AbstractServer {
     @Getter
     private final long policyExecuteInterval = 1000;
     /**
+     * Management Service
+     */
+    @Getter
+    private ScheduledExecutorService managementService;
+    /**
      * To schedule failure detection.
      */
     @Getter
-    private final ScheduledExecutorService failureDetectorService;
+    private ScheduledExecutorService detectorService;
     /**
-     * Future for periodic failure detection task.
+     * Future for periodic failure and healed nodes detection task.
      */
     private Future failureDetectorFuture = null;
+    private Future healingDetectorFuture = null;
     private boolean recovered = false;
 
     @Getter
     private volatile CompletableFuture<Boolean> sequencerBootstrappedFuture;
 
-    private final Orchestrator orchestrator;
+    private Orchestrator orchestrator;
 
     /**
      * Returns new ManagementServer.
@@ -160,19 +171,26 @@ public class ManagementServer extends AbstractServer {
             safeUpdateLayout(singleLayout);
         }
 
-        this.failureDetectorPolicy = serverContext.getFailureDetectorPolicy();
+        this.failureDetector = serverContext.getFailureDetector();
+        this.healingDetector = serverContext.getHealingDetector();
         this.failureHandlerPolicy = serverContext.getFailureHandlerPolicy();
+        this.healingHandlerPolicy = serverContext.getHealingHandlerPolicy();
         this.reconfigurationEventHandler = new ReconfigurationEventHandler();
-        this.failureDetectorService = Executors.newScheduledThreadPool(
-                2,
+
+        setUpManagementService();
+    }
+
+    private void setUpManagementService() {
+        this.managementService = Executors.newScheduledThreadPool(
+                1,
                 new ThreadFactoryBuilder()
                         .setDaemon(true)
-                        .setNameFormat("FaultDetector-%d-" + getLocalEndpoint())
+                        .setNameFormat("ManagementService-" + getLocalEndpoint())
                         .build());
 
         // Initiating periodic task to poll for failures.
         try {
-            failureDetectorService.scheduleAtFixedRate(
+            managementService.scheduleAtFixedRate(
                     this::failureDetectorScheduler,
                     0,
                     policyExecuteInterval,
@@ -182,6 +200,13 @@ public class ManagementServer extends AbstractServer {
         }
 
         orchestrator = new Orchestrator(this::getCorfuRuntime);
+
+        this.detectorService = Executors.newScheduledThreadPool(
+                2,
+                new ThreadFactoryBuilder()
+                        .setDaemon(true)
+                        .setNameFormat("FaultDetector-%d-" + getLocalEndpoint())
+                        .build());
     }
 
     private void bootstrapPrimarySequencerServer() {
@@ -208,7 +233,17 @@ public class ManagementServer extends AbstractServer {
         try {
             boolean recoveryResult = reconfigurationEventHandler
                     .recoverCluster((Layout) latestLayout.clone(), getCorfuRuntime());
-            safeUpdateLayout(corfuRuntime.getLayoutView().getLayout());
+
+            getCorfuRuntime().invalidateLayout();
+            Layout clusterLayout = getCorfuRuntime().getLayoutView().getLayout();
+
+            // The cluster has moved ahead. This node should not force any layout. Let the other
+            // members detect that this node has healed and include it in the layout.
+            if (clusterLayout.getEpoch() > latestLayout.getEpoch()) {
+                startFailureHandler = true;
+                return true;
+            }
+
             return recoveryResult;
         } catch (CloneNotSupportedException e) {
             log.error("Failure Handler could not clone layout: {}", e);
@@ -349,7 +384,7 @@ public class ManagementServer extends AbstractServer {
      */
     @ServerHandler(type = CorfuMsgType.MANAGEMENT_FAILURE_DETECTED, opTimer = metricsPrefix
             + "failure-detected")
-    public synchronized void handleFailureDetectedMsg(CorfuPayloadMsg<FailureDetectorMsg> msg,
+    public synchronized void handleFailureDetectedMsg(CorfuPayloadMsg<DetectorMsg> msg,
                                                       ChannelHandlerContext ctx, IServerRouter r,
                                                       boolean isMetricsEnabled) {
 
@@ -366,8 +401,7 @@ public class ManagementServer extends AbstractServer {
                     failureHandlerPolicy,
                     (Layout) latestLayout.clone(),
                     getCorfuRuntime(),
-                    msg.getPayload().getFailedNodes(),
-                    msg.getPayload().getHealedNodes());
+                    msg.getPayload().getFailedNodes());
             if (result) {
                 r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.ACK));
             } else {
@@ -376,6 +410,46 @@ public class ManagementServer extends AbstractServer {
             }
         } catch (CloneNotSupportedException e) {
             log.error("handleFailureDetectedMsg: Failure Handler could not clone layout: {}", e);
+            r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.NACK));
+        }
+    }
+
+    /**
+     * Triggers the healing handler.
+     * The msg contains the healed nodes.
+     *
+     * @param msg corfu message containing MANAGEMENT_HEALING_DETECTED
+     * @param ctx netty ChannelHandlerContext
+     * @param r   server router
+     */
+    @ServerHandler(type = CorfuMsgType.MANAGEMENT_HEALING_DETECTED, opTimer = metricsPrefix
+            + "failure-detected")
+    public synchronized void handleHealingDetectedMsg(CorfuPayloadMsg<DetectorMsg> msg,
+                                                      ChannelHandlerContext ctx, IServerRouter r,
+                                                      boolean isMetricsEnabled) {
+
+        // This server has not been bootstrapped yet, ignore all requests.
+        if (!checkBootstrap(msg, ctx, r)) {
+            r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR));
+            return;
+        }
+
+        log.info("handleHealingDetectedMsg: Received Healed nodes : {}",
+                msg.getPayload().getHealedNodes());
+        try {
+            boolean result = reconfigurationEventHandler.handleHealing(
+                    healingHandlerPolicy,
+                    (Layout) latestLayout.clone(),
+                    getCorfuRuntime(),
+                    msg.getPayload().getHealedNodes());
+            if (result) {
+                r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.ACK));
+            } else {
+                log.error("handleHealingDetectedMsg: healing handling unsuccessful.");
+                r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.NACK));
+            }
+        } catch (CloneNotSupportedException e) {
+            log.error("handleHealingDetectedMsg: Healing Handler could not clone layout: {}", e);
             r.sendResponse(ctx, msg, new CorfuMsg(CorfuMsgType.NACK));
         }
     }
@@ -442,7 +516,10 @@ public class ManagementServer extends AbstractServer {
     }
 
     /**
-     * Schedules the failure detector task only if the previous task is completed.
+     * Schedules exactly one instance of the following tasks.
+     * - Recovery if not completed.
+     * - Failure detection tasks.
+     * - Healing detection tasks.
      */
     private synchronized void failureDetectorScheduler() {
         if (latestLayout == null && bootstrapEndpoint == null) {
@@ -463,10 +540,63 @@ public class ManagementServer extends AbstractServer {
             bootstrapPrimarySequencerServer();
         }
 
-        if (failureDetectorFuture == null || failureDetectorFuture.isDone()) {
-            failureDetectorFuture = failureDetectorService.submit(this::failureDetectorTask);
+        runFailureDetectorTask();
+
+        runHealingDetectorTask();
+    }
+
+    /**
+     * This contains the healing mechanism.
+     * Executes the healing detector which polls unresponsive nodes and generates the poll report.
+     * This report is used to handle reconfiguration changes to include these healed nodes back to
+     * the cluster.
+     */
+    private void runHealingDetectorTask() {
+
+        if (healingDetectorFuture == null || healingDetectorFuture.isDone()) {
+            healingDetectorFuture = detectorService.submit(() -> {
+
+                CorfuRuntime corfuRuntime = getCorfuRuntime();
+                corfuRuntime.invalidateLayout();
+
+                safeUpdateLayout(corfuRuntime.getLayoutView().getLayout());
+
+                PollReport pollReport = healingDetector.poll(latestLayout, corfuRuntime);
+
+                if (!pollReport.getHealingNodes().isEmpty()) {
+
+                    // Check if handler has been initiated.
+                    if (!startFailureHandler) {
+                        log.debug("Failure Handler not yet initiated: {}", pollReport.toString());
+                        return;
+                    }
+
+                    // We check for 2 conditions here: If the node is a part of the current layout
+                    // or has it been marked as unresponsive. If either is true, it should not
+                    // attempt to change layout.
+                    if (!latestLayout.getAllServers().contains(getLocalEndpoint())
+                            || latestLayout.getUnresponsiveServers()
+                            .contains(getLocalEndpoint())) {
+                        log.warn("This Server is not a part of the active layout. "
+                                + "Aborting healing handling.");
+                        return;
+                    }
+
+                    try {
+                        log.info("Attempting to heal nodes in poll report: {}", pollReport);
+                        corfuRuntime.getRouter(getLocalEndpoint())
+                                .getClient(ManagementClient.class)
+                                .handleHealing(pollReport.getHealingNodes())
+                                .get();
+                        log.info("Healing nodes successful: {}", pollReport);
+                    } catch (InterruptedException | ExecutionException e) {
+                        log.error("Healing nodes failed: ", e);
+                    }
+                }
+
+            });
         } else {
-            log.debug("Cannot initiate new polling task. Polling in progress.");
+            log.debug("Cannot initiate new healing polling task. Polling in progress.");
         }
     }
 
@@ -482,43 +612,35 @@ public class ManagementServer extends AbstractServer {
      * Once detected, it triggers the trigger handler which takes care of
      * dispatching the appropriate handler.
      *
-     * <p>Currently executing the periodicPollPolicy.
+     * <p>Currently executing the failureDetector.
      * It executes the the polling at an interval of every 1 second.
      * After every poll it checks for any failures detected.
      */
-    private void failureDetectorTask() {
+    private void runFailureDetectorTask() {
 
-        CorfuRuntime corfuRuntime = getCorfuRuntime();
-        corfuRuntime.invalidateLayout();
+        if (failureDetectorFuture == null || failureDetectorFuture.isDone()) {
+            failureDetectorFuture = detectorService.submit(() -> {
 
-        safeUpdateLayout(corfuRuntime.getLayoutView().getLayout());
+                CorfuRuntime corfuRuntime = getCorfuRuntime();
+                corfuRuntime.invalidateLayout();
 
-        // Execute the failure detection policy once.
-        failureDetectorPolicy.executePolicy(latestLayout, corfuRuntime);
+                safeUpdateLayout(corfuRuntime.getLayoutView().getLayout());
 
-        // Get the server status from the policy and check for failures.
-        PollReport pollReport = failureDetectorPolicy.getServerStatus();
+                // Execute the failure detection poll round.
+                PollReport pollReport = failureDetector.poll(latestLayout, corfuRuntime);
 
-        // Corrects out of phase epoch issues if present in the report. This method performs
-        // re-sealing of all nodes if required and catchup of a layout server to the current state.
-        correctOutOfPhaseEpochs(pollReport);
+                // Corrects out of phase epoch issues if present in the report. This method
+                // performs re-sealing of all nodes if required and catchup of a layout server to
+                // the current state.
+                correctOutOfPhaseEpochs(pollReport);
 
-        // Analyze the poll report and trigger failure handler if needed.
-        analyzePollReportAndTriggerHandler(pollReport);
+                // Analyze the poll report and trigger failure handler if needed.
+                analyzePollReportAndTriggerHandler(pollReport);
 
-    }
-
-    /**
-     * We can check if we have unresponsive servers marked in the layout and un-mark them as they
-     * respond to polling now.
-     *
-     * @param pollReport Report from the polling task
-     * @return Set of nodes which have healed relative to the latest local copy of the layout.
-     */
-    private Set<String> getHealedNodes(PollReport pollReport) {
-        return Sets.difference(
-                new HashSet<>(latestLayout.getUnresponsiveServers()),
-                pollReport.getFailingNodes());
+            });
+        } else {
+            log.debug("Cannot initiate new polling task. Polling in progress.");
+        }
     }
 
     /**
@@ -544,9 +666,13 @@ public class ManagementServer extends AbstractServer {
      * @param pollReport Report from the polling task
      * @return True if latest layout slot is vacant. Else False.
      */
-    private boolean checkIfCurrentLayoutSlotUnFilled(PollReport pollReport) {
-        return pollReport.getOutOfPhaseEpochNodes().keySet()
+    private boolean isCurrentLayoutSlotUnFilled(PollReport pollReport) {
+        boolean result = pollReport.getOutOfPhaseEpochNodes().keySet()
                 .containsAll(latestLayout.getLayoutServers());
+        if (result) {
+            log.info("Current layout slot is empty. Filling slot with current layout.");
+        }
+        return result;
     }
 
     /**
@@ -571,30 +697,22 @@ public class ManagementServer extends AbstractServer {
             return;
         }
 
-        final ManagementClient localManagementClient = corfuRuntime.getRouter(getLocalEndpoint())
+        final ManagementClient localManagementClient = getCorfuRuntime()
+                .getRouter(getLocalEndpoint())
                 .getClient(ManagementClient.class);
 
         try {
             Set<String> failedNodes = new HashSet<>();
-            Set<String> healedNodes = new HashSet<>();
-
-            healedNodes.addAll(getHealedNodes(pollReport));
             failedNodes.addAll(getNewFailures(pollReport));
 
-            // These conditions are mutually exclusive. If there is a failure or healing to be
+            // These conditions are mutually exclusive. If there is a failure to be
             // handled, we don't need to explicitly fix the unfilled layout slot. Else we do.
-            if (failedNodes.isEmpty() && healedNodes.isEmpty()) {
-                if (checkIfCurrentLayoutSlotUnFilled(pollReport)) {
-                    log.info("Current layout slot is empty. Filling slot with current layout.");
-                    localManagementClient
-                            .handleFailure(Collections.emptySet(), Collections.emptySet()).get();
-                }
-                return;
-            }
+            if (!failedNodes.isEmpty() || isCurrentLayoutSlotUnFilled(pollReport)) {
 
-            log.info("Detected changes in node responsiveness: Failed:{}, Healed:{}, pollReport:{}",
-                    failedNodes, healedNodes, pollReport);
-            localManagementClient.handleFailure(failedNodes, healedNodes).get();
+                log.info("Detected changes in node responsiveness: Failed:{}, pollReport:{}",
+                        failedNodes, pollReport);
+                localManagementClient.handleFailure(failedNodes).get();
+            }
 
         } catch (Exception e) {
             log.error("Exception invoking failure handler : {}", e);
@@ -748,7 +866,8 @@ public class ManagementServer extends AbstractServer {
     public void shutdown() {
         super.shutdown();
         // Shutting the fault detector.
-        failureDetectorService.shutdownNow();
+        managementService.shutdownNow();
+        detectorService.shutdownNow();
 
         // Shut down the Corfu Runtime.
         if (corfuRuntime != null) {
@@ -756,10 +875,12 @@ public class ManagementServer extends AbstractServer {
         }
 
         try {
-            failureDetectorService.awaitTermination(ServerContext.SHUTDOWN_TIMER.getSeconds(),
+            managementService.awaitTermination(ServerContext.SHUTDOWN_TIMER.getSeconds(),
+                    TimeUnit.SECONDS);
+            detectorService.awaitTermination(ServerContext.SHUTDOWN_TIMER.getSeconds(),
                     TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
-            log.debug("failureDetectorService awaitTermination interrupted : {}", ie);
+            log.debug("detectorService awaitTermination interrupted : {}", ie);
         }
         log.info("Management Server shutting down.");
     }

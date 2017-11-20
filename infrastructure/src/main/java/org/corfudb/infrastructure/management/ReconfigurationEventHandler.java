@@ -5,7 +5,7 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 
 import org.corfudb.runtime.CorfuRuntime;
-import org.corfudb.runtime.view.IFailureHandlerPolicy;
+import org.corfudb.runtime.view.IReconfigurationHandlerPolicy;
 import org.corfudb.runtime.view.Layout;
 
 /**
@@ -47,19 +47,41 @@ public class ReconfigurationEventHandler {
      * @param currentLayout The current layout
      * @param corfuRuntime  Connected corfu runtime instance
      * @param failedServers Set of failed server addresses
-     * @param healedServers Set of healed server addresses
      */
-    public boolean handleFailure(IFailureHandlerPolicy failureHandlerPolicy,
-                              Layout currentLayout,
-                              CorfuRuntime corfuRuntime,
-                              Set<String> failedServers,
-                              Set<String> healedServers) {
+    public boolean handleFailure(IReconfigurationHandlerPolicy failureHandlerPolicy,
+                                 Layout currentLayout,
+                                 CorfuRuntime corfuRuntime,
+                                 Set<String> failedServers) {
         try {
             corfuRuntime.getLayoutManagementView().handleFailure(failureHandlerPolicy,
-                    currentLayout, failedServers, healedServers);
+                    currentLayout, failedServers);
             return true;
         } catch (Exception e) {
             log.error("Error: handleFailure: {}", e);
+            return false;
+        }
+    }
+
+    /**
+     * Takes in the existing layout and a set of healed nodes.
+     * It first generates a new layout by adding the healed nodes to the existing layout.
+     * It then seals the epoch to prevent any client from accessing the stale layout.
+     * Finally we run paxos to update all servers with the new layout.
+     *
+     * @param currentLayout The current layout
+     * @param corfuRuntime  Connected corfu runtime instance
+     * @param healedServers Set of healed server addresses
+     */
+    public boolean handleHealing(IReconfigurationHandlerPolicy failureHandlerPolicy,
+                                 Layout currentLayout,
+                                 CorfuRuntime corfuRuntime,
+                                 Set<String> healedServers) {
+        try {
+            corfuRuntime.getLayoutManagementView().handleHealing(failureHandlerPolicy,
+                    currentLayout, healedServers);
+            return true;
+        } catch (Exception e) {
+            log.error("Error: handleHealing: {}", e);
             return false;
         }
     }

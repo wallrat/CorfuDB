@@ -10,10 +10,11 @@ import org.corfudb.runtime.exceptions.LayoutModificationException;
  *
  * <p>Created by zlokhandwala on 11/21/16.
  */
-public class PurgeFailurePolicy implements IReconfigurationHandlerPolicy {
+public class NoLogUnitHealingPolicy implements IReconfigurationHandlerPolicy {
 
     /**
-     * Modifies the layout by removing/purging the set failed nodes.
+     * Modifies the layout by healing the set healed nodes by simple removing them from the
+     * unresponsive servers list.
      *
      * @param originalLayout Original Layout which needs to be modified.
      * @param corfuRuntime   Connected runtime to attach to the new layout.
@@ -31,9 +32,7 @@ public class PurgeFailurePolicy implements IReconfigurationHandlerPolicy {
             throws LayoutModificationException, CloneNotSupportedException {
         LayoutBuilder layoutBuilder = new LayoutBuilder(originalLayout);
         Layout newLayout = layoutBuilder
-                .removeLayoutServers(failedNodes)
-                .removeSequencerServers(failedNodes)
-                .removeLogunitServers(failedNodes)
+                .removeUnResponsiveServers(healedNodes)
                 .build();
         newLayout.setRuntime(corfuRuntime);
         newLayout.setEpoch(newLayout.getEpoch() + 1);

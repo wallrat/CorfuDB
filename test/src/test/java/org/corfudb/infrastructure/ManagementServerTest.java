@@ -1,7 +1,7 @@
 package org.corfudb.infrastructure;
 
 import org.corfudb.protocols.wireprotocol.CorfuMsgType;
-import org.corfudb.protocols.wireprotocol.FailureDetectorMsg;
+import org.corfudb.protocols.wireprotocol.DetectorMsg;
 import org.corfudb.runtime.view.Layout;
 import org.junit.After;
 import org.junit.Test;
@@ -55,9 +55,9 @@ public class ManagementServerTest extends AbstractServerTest {
      */
     @Test
     public void checkFailureDetectorStatus() {
-        assertThat(!managementServer.getFailureDetectorService().isShutdown());
+        assertThat(!managementServer.getDetectorService().isShutdown());
         managementServer.shutdown();
-        assertThat(managementServer.getFailureDetectorService().isShutdown());
+        assertThat(managementServer.getDetectorService().isShutdown());
     }
 
     /**
@@ -81,12 +81,12 @@ public class ManagementServerTest extends AbstractServerTest {
         Set<String> set = new HashSet<>();
         set.add("key");
         sendMessage(CorfuMsgType.MANAGEMENT_FAILURE_DETECTED.payloadMsg(
-                new FailureDetectorMsg(Collections.singleton("key"), Collections.emptySet())));
+                new DetectorMsg(Collections.singleton("key"), Collections.emptySet())));
         assertThat(getLastMessage().getMsgType()).isEqualTo(CorfuMsgType.MANAGEMENT_NOBOOTSTRAP_ERROR);
         sendMessage(CorfuMsgType.MANAGEMENT_BOOTSTRAP_REQUEST.payloadMsg(layout));
         assertThat(getLastMessage().getMsgType()).isEqualTo(CorfuMsgType.ACK);
         sendMessage(CorfuMsgType.MANAGEMENT_FAILURE_DETECTED.payloadMsg(
-                new FailureDetectorMsg(Collections.singleton("key"), Collections.emptySet())));
+                new DetectorMsg(Collections.singleton("key"), Collections.emptySet())));
         assertThat(getLastMessage().getMsgType()).isEqualTo(CorfuMsgType.ACK);
     }
 }

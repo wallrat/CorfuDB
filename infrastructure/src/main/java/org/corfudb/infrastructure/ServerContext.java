@@ -8,10 +8,12 @@ import java.util.Map;
 import lombok.Getter;
 import lombok.Setter;
 
-import org.corfudb.infrastructure.management.IFailureDetectorPolicy;
-import org.corfudb.infrastructure.management.PeriodicPollPolicy;
+import org.corfudb.infrastructure.management.FailureDetector;
+import org.corfudb.infrastructure.management.HealingDetector;
+import org.corfudb.infrastructure.management.IDetector;
 import org.corfudb.runtime.view.ConservativeFailureHandlerPolicy;
-import org.corfudb.runtime.view.IFailureHandlerPolicy;
+import org.corfudb.runtime.view.IReconfigurationHandlerPolicy;
+import org.corfudb.runtime.view.NoLogUnitHealingPolicy;
 import org.corfudb.util.MetricsUtils;
 
 import static org.corfudb.util.MetricsUtils.isMetricsReportingSetUp;
@@ -56,17 +58,26 @@ public class ServerContext {
 
     @Getter
     @Setter
-    private IFailureDetectorPolicy failureDetectorPolicy;
+    private IDetector failureDetector;
 
     @Getter
     @Setter
-    private IFailureHandlerPolicy failureHandlerPolicy;
+    private IDetector healingDetector;
+
+    @Getter
+    @Setter
+    private IReconfigurationHandlerPolicy failureHandlerPolicy;
+
+    @Getter
+    @Setter
+    private IReconfigurationHandlerPolicy healingHandlerPolicy;
 
     @Getter
     public static final MetricRegistry metrics = new MetricRegistry();
 
     /**
      * Returns a new ServerContext.
+     *
      * @param serverConfig map of configuration strings to objects
      * @param serverRouter server router
      */
@@ -74,8 +85,10 @@ public class ServerContext {
         this.serverConfig = serverConfig;
         this.dataStore = new DataStore(serverConfig);
         this.serverRouter = serverRouter;
-        this.failureDetectorPolicy = new PeriodicPollPolicy();
+        this.failureDetector = new FailureDetector();
+        this.healingDetector = new HealingDetector();
         this.failureHandlerPolicy = new ConservativeFailureHandlerPolicy();
+        this.healingHandlerPolicy = new NoLogUnitHealingPolicy();
 
         // Metrics setup & reporting configuration
         String mp = "corfu.server.";
@@ -98,6 +111,7 @@ public class ServerContext {
 
     /**
      * Set the serverRouter epoch.
+     *
      * @param serverEpoch the epoch to set
      */
     public void setServerEpoch(long serverEpoch) {
@@ -118,6 +132,7 @@ public class ServerContext {
 
     /**
      * Returns the dataStore starting address.
+     *
      * @return the starting address
      */
     public long getStartingAddress() {

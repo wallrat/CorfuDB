@@ -61,12 +61,10 @@ public class LayoutManagementView extends AbstractView {
      *
      * @param currentLayout The current layout
      * @param failedServers Set of failed server addresses
-     * @param healedServers Set of healed server addresses
      */
-    public void handleFailure(IFailureHandlerPolicy failureHandlerPolicy,
+    public void handleFailure(IReconfigurationHandlerPolicy failureHandlerPolicy,
                               Layout currentLayout,
-                              Set<String> failedServers,
-                              Set<String> healedServers)
+                              Set<String> failedServers)
             throws QuorumUnreachableException, OutrankedException, InterruptedException,
             ExecutionException, LayoutModificationException, CloneNotSupportedException {
 
@@ -75,10 +73,33 @@ public class LayoutManagementView extends AbstractView {
                 .generateLayout(currentLayout,
                         runtime,
                         failedServers,
-                        healedServers);
+                        Collections.emptySet());
         runLayoutReconfiguration(currentLayout, newLayout, false);
     }
 
+    /**
+     * Takes in the existing layout and a set of failed nodes.
+     * It first generates a new layout by removing the failed nodes from the existing layout.
+     * It then seals the epoch to prevent any client from accessing the stale layout.
+     * Finally we run paxos to update all servers with the new layout.
+     *
+     * @param currentLayout The current layout
+     * @param healedServers Set of healed server addresses
+     */
+    public void handleHealing(IReconfigurationHandlerPolicy failureHandlerPolicy,
+                              Layout currentLayout,
+                              Set<String> healedServers)
+            throws QuorumUnreachableException, OutrankedException, InterruptedException,
+            ExecutionException, LayoutModificationException, CloneNotSupportedException {
+
+        // Generates a new layout by adding the healed nodes from the existing layout
+        Layout newLayout = failureHandlerPolicy
+                .generateLayout(currentLayout,
+                        runtime,
+                        Collections.emptySet(),
+                        healedServers);
+        runLayoutReconfiguration(currentLayout, newLayout, false);
+    }
 
     /**
      * Bootstraps the new node with the current layout.
@@ -146,7 +167,10 @@ public class LayoutManagementView extends AbstractView {
             layoutBuilder.addSequencerServer(endpoint);
         }
         if (isLogUnitServer) {
-            layoutBuilder.addLogunitServer(logUnitStripeIndex, getMaxGlobalTail(currentLayout),
+            Layout.LayoutSegment latestSegment =
+                    currentLayout.getSegments().get(currentLayout.getSegments().size() - 1);
+            layoutBuilder.addLogunitServer(logUnitStripeIndex,
+                    getMaxGlobalTail(latestSegment),
                     endpoint);
         }
         if (isUnresponsiveServer) {
@@ -279,34 +303,32 @@ public class LayoutManagementView extends AbstractView {
      * CHAIN: Block on fetch of global log tail from the head log unitin every stripe.
      * QUORUM: Block on fetch of global log tail from a majority in every stripe.
      *
-     * @param layout Current layout.
+     * @param segment Latest layout segment.
      * @return The max global log tail obtained from the log unit servers.
      */
-    private long getMaxGlobalTail(Layout layout)
+    private long getMaxGlobalTail(Layout.LayoutSegment segment)
             throws ExecutionException, InterruptedException {
         long maxTokenRequested = 0;
-        for (Layout.LayoutSegment segment : layout.getSegments()) {
 
-            // Query the tail of every log unit in every stripe.
-            if (segment.getReplicationMode().equals(Layout.ReplicationMode.CHAIN_REPLICATION)) {
-                for (Layout.LayoutStripe stripe : segment.getStripes()) {
-                    maxTokenRequested = Math.max(maxTokenRequested, runtime.getRouter(stripe
-                            .getLogServers().get(0))
-                            .getClient(LogUnitClient.class).getTail().get());
-                }
-            } else if (segment.getReplicationMode()
-                    .equals(Layout.ReplicationMode.QUORUM_REPLICATION)) {
-                for (Layout.LayoutStripe stripe : segment.getStripes()) {
-                    CompletableFuture<Long>[] completableFutures = stripe.getLogServers()
-                            .stream()
-                            .map(s -> runtime.getRouter(s).getClient(LogUnitClient.class)
-                                    .getTail())
-                            .toArray(CompletableFuture[]::new);
-                    QuorumFuturesFactory.CompositeFuture<Long> quorumFuture =
-                            QuorumFuturesFactory.getQuorumFuture(Comparator.naturalOrder(),
-                                    completableFutures);
-                    maxTokenRequested = Math.max(maxTokenRequested, quorumFuture.get());
-                }
+        // Query the tail of the head log unit in every stripe.
+        if (segment.getReplicationMode().equals(Layout.ReplicationMode.CHAIN_REPLICATION)) {
+            for (Layout.LayoutStripe stripe : segment.getStripes()) {
+                maxTokenRequested = Math.max(maxTokenRequested, runtime.getRouter(stripe
+                        .getLogServers().get(0))
+                        .getClient(LogUnitClient.class).getTail().get());
+            }
+
+        } else if (segment.getReplicationMode()
+                .equals(Layout.ReplicationMode.QUORUM_REPLICATION)) {
+            for (Layout.LayoutStripe stripe : segment.getStripes()) {
+                CompletableFuture<Long>[] completableFutures = stripe.getLogServers()
+                        .stream()
+                        .map(s -> runtime.getRouter(s).getClient(LogUnitClient.class).getTail())
+                        .toArray(CompletableFuture[]::new);
+                QuorumFuturesFactory.CompositeFuture<Long> quorumFuture =
+                        QuorumFuturesFactory.getQuorumFuture(Comparator.naturalOrder(),
+                                completableFutures);
+                maxTokenRequested = Math.max(maxTokenRequested, quorumFuture.get());
             }
         }
         return maxTokenRequested;
@@ -322,8 +344,8 @@ public class LayoutManagementView extends AbstractView {
      * @param newLayout        New Layout to be reconfigured.
      * @param forceReconfigure Flag to force reconfiguration.
      */
-    private void reconfigureSequencerServers(Layout originalLayout, Layout
-            newLayout, boolean forceReconfigure)
+    private void reconfigureSequencerServers(Layout originalLayout, Layout newLayout,
+                                             boolean forceReconfigure)
             throws InterruptedException, ExecutionException {
 
         long maxTokenRequested = 0L;
@@ -333,7 +355,9 @@ public class LayoutManagementView extends AbstractView {
         if (forceReconfigure
                 || !originalLayout.getSequencers().get(0).equals(newLayout.getSequencers()
                 .get(0))) {
-            maxTokenRequested = getMaxGlobalTail(originalLayout);
+            Layout.LayoutSegment latestSegment = newLayout.getSegments()
+                    .get(newLayout.getSegments().size() - 1);
+            maxTokenRequested = getMaxGlobalTail(latestSegment);
 
             FastObjectLoader fastObjectLoader = new FastObjectLoader(runtime);
             fastObjectLoader.setRecoverSequencerMode(true);

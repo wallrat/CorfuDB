@@ -10,7 +10,7 @@ import org.corfudb.runtime.exceptions.LayoutModificationException;
  *
  * <p>Created by zlokhandwala on 11/21/16.
  */
-public class ConservativeFailureHandlerPolicy implements IFailureHandlerPolicy {
+public class ConservativeFailureHandlerPolicy implements IReconfigurationHandlerPolicy {
 
     /**
      * Modifies the layout by marking the failed nodes as unresponsive but still keeping them in
@@ -34,6 +34,7 @@ public class ConservativeFailureHandlerPolicy implements IFailureHandlerPolicy {
         LayoutBuilder layoutBuilder = new LayoutBuilder(originalLayout);
         Layout newLayout = layoutBuilder
                 .assignResponsiveSequencerAsPrimary(failedNodes)
+                .removeLogunitServers(failedNodes)
                 .removeUnResponsiveServers(healedNodes)
                 .addUnresponsiveServers(failedNodes)
                 .build();

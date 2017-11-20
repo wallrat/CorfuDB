@@ -1,6 +1,7 @@
 package org.corfudb.runtime.clients;
 
 import com.google.common.collect.ImmutableSet;
+
 import org.corfudb.format.Types.NodeMetrics;
 import org.corfudb.infrastructure.*;
 import org.corfudb.protocols.wireprotocol.orchestrator.AddNodeResponse;
@@ -104,9 +105,7 @@ public class ManagementClientTest extends AbstractClientTest {
             throws Exception {
 
         // Since the servers are started as single nodes thus already bootstrapped.
-        assertThat(
-                client.handleFailure(Collections.singleton("key"), Collections.emptySet()).get())
-                .isEqualTo(true);
+        assertThat(client.handleFailure(Collections.singleton("key")).get()).isEqualTo(true);
     }
 
     /**
