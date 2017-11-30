@@ -184,7 +184,7 @@ public class LayoutManagementView extends AbstractView {
         try {
             // Add node is successful even if reconfigure sequencer fails.
             // TODO: Optimize this by retrying or submitting a workflow to retry.
-            reconfigureSequencerServers(currentLayout, newLayout, true);
+            reconfigureSequencerServers(currentLayout, newLayout, false);
         } catch (InterruptedException | ExecutionException e) {
             log.error("Bootstrapping sequencer failed due to exception : ", e);
         }
@@ -216,7 +216,7 @@ public class LayoutManagementView extends AbstractView {
         attemptConsensus(newLayout);
 
         try {
-            reconfigureSequencerServers(currentLayout, newLayout, true);
+            reconfigureSequencerServers(currentLayout, newLayout, false);
         } catch (InterruptedException | ExecutionException e) {
             log.error("mergeSegments: Bootstrapping sequencer failed due to exception : ", e);
         }
