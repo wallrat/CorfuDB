@@ -28,6 +28,8 @@ Options:
 (get-runtime (.. localcmd (get "--config")) localcmd)
 (connect-runtime)
 
+(println "reach here")
+
 ; determine what to do
 (add-node (.. localcmd (get "--new-node")))
 

@@ -96,6 +96,14 @@ public abstract class AbstractView {
                     WrongEpochException we = (WrongEpochException) re;
                     log.warn("Got a wrong epoch exception, updating epoch to {} and "
                             + "invalidate view", we.getCorrectEpoch());
+                    System.out.println("wrong layout:");
+                    try {
+                        System.out.println(runtime.layout.get());
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    } catch (ExecutionException e) {
+                        e.printStackTrace();
+                    }
                     runtime.invalidateLayout();
                 } else {
                     throw re;

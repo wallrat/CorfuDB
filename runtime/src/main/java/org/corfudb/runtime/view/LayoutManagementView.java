@@ -178,6 +178,7 @@ public class LayoutManagementView extends AbstractView {
         }
         Layout newLayout = layoutBuilder.build();
         newLayout.setRuntime(runtime);
+        log.info("New Layout to be proposed" + newLayout);
 
         attemptConsensus(newLayout);
 
