@@ -278,6 +278,7 @@ public class VersionLockedObject<T> {
      * @param timestamp The timestamp to update the object to.
      */
     public void syncObjectUnsafe(long timestamp) {
+        long start_time = System.nanoTime();
         // If there is an optimistic stream attached,
         // and it belongs to this thread use that
         if (optimisticallyOwnedByThreadUnsafe()) {
@@ -316,6 +317,9 @@ public class VersionLockedObject<T> {
                     // Rollback successfully got us to the right
                     // version, we're done.
                     if (getVersionUnsafe() == timestamp) {
+                        long end_time = System.nanoTime();
+                        double difference = (end_time - start_time) / 1e6;
+                        log.info("Sync time {} on {}", difference, smrStream);
                         return;
                     }
                 } catch (NoRollbackException nre) {
@@ -325,6 +329,9 @@ public class VersionLockedObject<T> {
             }
             syncStreamUnsafe(smrStream, timestamp);
         }
+        long end_time = System.nanoTime();
+        double difference = (end_time - start_time) / 1e6;
+        log.info("Sync time {} on {}", difference, smrStream);
     }
 
     /**

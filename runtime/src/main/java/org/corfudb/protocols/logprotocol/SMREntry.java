@@ -75,6 +75,9 @@ public class SMREntry extends LogEntry implements ISMRConsumable {
     /** Set the undo record for this entry. */
     public void setUndoRecord(Object object) {
         this.undoRecord = object;
+        if (object != null) {
+            System.out.println("he");
+        }
         undoable = true;
     }
 

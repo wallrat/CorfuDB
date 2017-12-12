@@ -1,10 +1,16 @@
 package org.corfudb.integration;
 
 import org.corfudb.protocols.wireprotocol.ILogData;
+import org.corfudb.protocols.wireprotocol.TokenResponse;
 import org.corfudb.runtime.CorfuRuntime;
+import org.corfudb.runtime.collections.BalancedMap;
+import org.corfudb.runtime.collections.ISMRMap;
+import org.corfudb.runtime.collections.SMRMap;
 import org.corfudb.runtime.view.stream.IStreamView;
 import org.junit.Before;
+import org.junit.Test;
 
+import java.util.Collections;
 import java.util.Random;
 import java.util.UUID;
 
@@ -14,55 +20,69 @@ import static org.assertj.core.api.Assertions.assertThat;
  * A set integration tests that exercise the stream API.
  */
 
-public class StreamIT extends AbstractIT {
-    static String corfuSingleNodeHost;
-    static int corfuSingleNodePort;
+public class StreamIT {
 
-    @Before
-    public void loadProperties() throws Exception {
-        corfuSingleNodeHost = (String) PROPERTIES.get("corfuSingleNodeHost");
-        corfuSingleNodePort = Integer.parseInt((String) PROPERTIES.get("corfuSingleNodePort"));
-    }
-
-//    @Test
+    @Test
     public void simpleStreamTest() throws Exception {
 
-        Process corfuServerProcess = new CorfuServerRunner()
-                .setHost(corfuSingleNodeHost)
-                .setPort(corfuSingleNodePort)
-                .runServer();
+        CorfuRuntime rt = new CorfuRuntime("localhost:9000").connect();
 
-        CorfuRuntime rt = createDefaultRuntime();
-        rt.setCacheDisabled(true);
+        final int numInstasnces = 1;
+        ISMRMap<String,  String> map;
 
-        Random rand = new Random();
+        //map = new BalancedMap<>(rt, numInstasnces, "map1");
 
-        UUID streamId = CorfuRuntime.getStreamID(Integer.toString(rand.nextInt()));
 
-        IStreamView s1 = rt.getStreamsView().get(streamId);
 
-        // Verify that the stream is empty
-        assertThat(s1.hasNext())
-                .isFalse();
+        map = rt.getObjectsView().build()
+                .setStreamName("map2")
+                .setType(SMRMap.class)
+                .open();
 
-        // Generate and append random data
-        int entrySize = Integer.valueOf(PROPERTIES.getProperty("largeEntrySize"));
-        final int numEntries = 100;
-        byte[][] data = new byte[numEntries][entrySize];
 
-        for(int x = 0; x < numEntries; x++) {
-            rand.nextBytes(data[x]);
-            s1.append(data[x]);
+
+        final int numThreads = 4;
+        final int iter = 10;
+        final int upper = 500_000;
+
+        Thread[] threads = new Thread[numThreads];
+
+        for (int x = 0; x < numThreads; x++) {
+            Runnable r = () -> {
+                Random rand = new Random();
+
+                for (int i = 0; i < iter; i++) {
+                    int  n = rand.nextInt(upper) + 1;
+                    int  d = rand.nextInt(10) + 1;
+                    if (true) {
+                        rt.getObjectsView().TXBegin();
+                        map.put(String.valueOf(n), String.valueOf(n));
+                        rt.getObjectsView().TXEnd();
+                    } else {
+                        TokenResponse tokenResponse =
+                                rt.getSequencerView().nextToken(Collections.EMPTY_SET, 0);
+                        long globalTail = tokenResponse.getToken().getTokenValue();
+                        rt.getObjectsView().TXBuild().setSnapshot(Math.max(0, globalTail - 1)).begin();
+                        map.get("n");
+                        rt.getObjectsView().TXEnd();
+                    }
+                }
+            };
+
+            threads[x] = new Thread(r);
         }
 
-        // Read back the data and verify it is correct
-        for(int x = 0; x < numEntries; x++) {
-            ILogData entry = s1.nextUpTo(x);
-            byte[] tmp = (byte[]) entry.getPayload(rt);
-
-            assertThat(tmp).isEqualTo(data[x]);
+        long start_time = System.nanoTime();
+        for (int x = 0; x < numThreads; x++) {
+            threads[x].start();
         }
 
-        assertThat(shutdownCorfuServer(corfuServerProcess)).isTrue();
+        for (int x = 0; x < numThreads; x++) {
+            threads[x].join();
+        }
+        long end_time = System.nanoTime();
+        double difference = (end_time - start_time) / 1e6;
+
+        System.out.print(difference + " ms");
     }
 }
