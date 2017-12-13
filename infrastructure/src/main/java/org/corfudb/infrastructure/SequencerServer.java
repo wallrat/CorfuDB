@@ -16,6 +16,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,6 +39,7 @@ import org.corfudb.runtime.view.Address;
 import org.corfudb.util.MetricsUtils;
 import org.corfudb.util.Utils;
 
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
 import static org.corfudb.protocols.wireprotocol.TokenType.TX_ABORT_SEQ_OVERFLOW;
 
 /**
@@ -83,6 +87,9 @@ public class SequencerServer extends AbstractServer {
      * Inherit from CorfuServer a server context.
      */
     private final ServerContext serverContext;
+
+    ExecutorService sequencer = newSingleThreadExecutor();
+    ExecutorService respWorkers = Executors.newFixedThreadPool(3);
 
     /**
      * Our options.
@@ -312,8 +319,9 @@ public class SequencerServer extends AbstractServer {
         long responseGlobalTail = (req.getStreams().size() == 0) ? globalLogTail.get() - 1 :
                 maxStreamGlobalTail;
         Token token = new Token(responseGlobalTail, r.getServerEpoch());
-        r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
-                TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));
+
+        respWorkers.submit(() -> {r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
+                TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));});
     }
 
     @ServerHandler(type = CorfuMsgType.SEQUENCER_TRIM_REQ, opTimer = metricsPrefix + "trimCache")
@@ -408,19 +416,19 @@ public class SequencerServer extends AbstractServer {
         // dispatch request handler according to request type
         switch (req.getReqType()) {
             case TokenRequest.TK_QUERY:
-                handleTokenQuery(msg, ctx, r);
+                sequencer.submit(() -> {handleTokenQuery(msg, ctx, r);});
                 return;
 
             case TokenRequest.TK_RAW:
-                handleRawToken(msg, ctx, r);
+                sequencer.submit(() -> {handleRawToken(msg, ctx, r);});
                 return;
 
             case TokenRequest.TK_TX:
-                handleTxToken(msg, ctx, r);
+                sequencer.submit(() -> {handleTxToken(msg, ctx, r);});
                 return;
 
             default:
-                handleAllocation(msg, ctx, r);
+                sequencer.submit(() -> {handleAllocation(msg, ctx, r);});
                 return;
         }
     }
@@ -439,9 +447,8 @@ public class SequencerServer extends AbstractServer {
         final TokenRequest req = msg.getPayload();
 
         Token token = new Token(globalLogTail.getAndAdd(req.getNumTokens()), serverEpoch);
-        r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
-                TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));
-
+        respWorkers.submit(() -> {r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
+                TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));});
     }
 
     /**
@@ -474,8 +481,8 @@ public class SequencerServer extends AbstractServer {
         if (tokenType != TokenType.NORMAL) {
             // If the txn aborts, then DO NOT hand out a token.
             Token token = new Token(Address.ABORTED, serverEpoch);
-            r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(tokenType,
-                    conflictKey.get(), token, Collections.emptyMap())));
+            respWorkers.submit(() -> {r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(tokenType,
+                    conflictKey.get(), token, Collections.emptyMap())));});
             return;
         }
 
@@ -545,9 +552,24 @@ public class SequencerServer extends AbstractServer {
         // return the token response with the new global tail
         // and the streams backpointers
         Token token = new Token(currentTail, serverEpoch);
-        r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
+        respWorkers.submit(() -> {r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
                 TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token,
-                backPointerMap.build())));
+                backPointerMap.build())));});
+
+    }
+
+    @Override
+    public void shutdown() {
+        try {
+            sequencer.shutdown();
+            sequencer.awaitTermination(2, TimeUnit.MINUTES);
+            respWorkers.shutdown();
+            respWorkers.awaitTermination(2, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            log.error("failed to shutdown properly");
+            Thread.currentThread().interrupt();
+        }
+        super.shutdown();
     }
 
     @VisibleForTesting

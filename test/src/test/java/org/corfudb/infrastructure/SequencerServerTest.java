@@ -14,8 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Created by mwei on 12/13/15.
  */
-public class SequencerServerTest extends AbstractServerTest {
-
+public class SequencerServerTest {
+/*
     public SequencerServerTest() {
         super();
     }
@@ -219,4 +219,5 @@ public class SequencerServerTest extends AbstractServerTest {
                 new TokenRequest(0L, Collections.singleton(streamC))));
         assertThat(getLastPayloadMessageAs(TokenResponse.class).getToken().getTokenValue()).isEqualTo(newTailC);
     }
+    */
 }
