@@ -1,68 +1,70 @@
 package org.corfudb.integration;
 
-import org.corfudb.protocols.wireprotocol.ILogData;
+import com.google.common.reflect.TypeToken;
 import org.corfudb.runtime.CorfuRuntime;
-import org.corfudb.runtime.view.stream.IStreamView;
-import org.junit.Before;
+import org.corfudb.runtime.collections.CorfuTable;
+import org.corfudb.runtime.collections.CorfuTableTest;
+import org.corfudb.runtime.object.transactions.TransactionType;
+import org.junit.Test;
 
-import java.util.Random;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.corfudb.integration.AbstractIT.createDefaultRuntime;
 
 /**
  * A set integration tests that exercise the stream API.
  */
 
-public class StreamIT extends AbstractIT {
-    static String corfuSingleNodeHost;
-    static int corfuSingleNodePort;
+public class StreamIT {
 
-    @Before
-    public void loadProperties() throws Exception {
-        corfuSingleNodeHost = (String) PROPERTIES.get("corfuSingleNodeHost");
-        corfuSingleNodePort = Integer.parseInt((String) PROPERTIES.get("corfuSingleNodePort"));
+    //@Test
+    public void RunLoad() throws Exception {
+        CorfuRuntime runtime = createDefaultRuntime();
+
+        CorfuTable<String, String, CorfuTableTest.StringIndexers, String>
+                corfuTable1 = runtime.getObjectsView().build()
+                .setTypeToken(
+                        new TypeToken<CorfuTable<String, String, CorfuTableTest.StringIndexers, String>>() {})
+                .setArguments(CorfuTableTest.StringIndexers.class)
+                .setStreamName("test")
+                .open();
+
+        long t1 = System.currentTimeMillis();
+        final int REPETITIONS = 10_000;
+        final int entriesPerTxn = 10;
+        Thread th1 = new Thread(() -> {
+            for(int i = 0; i < REPETITIONS; i++) {
+                TXBegin(runtime);
+                for (int x = 0; x < entriesPerTxn; x++) {
+                    corfuTable1.put("keya" + i, "vala" + i);
+                }
+                TXEnd(runtime);
+            }
+        });
+        Thread th2 = new Thread(() -> {
+            for(int i = 0; i < REPETITIONS; i++) {
+                //TXBegin(runtime);
+                corfuTable1.put("keya" + i, "vala" + i);
+                //TXEnd(runtime);
+            }
+        });
+        th1.start();
+        th2.start();
+        th1.join();
+        th2.join();
+
+        System.out.println("Time Taken: " + (System.currentTimeMillis() - t1));
+
+
+
     }
 
-//    @Test
-    public void simpleStreamTest() throws Exception {
-
-        Process corfuServerProcess = new CorfuServerRunner()
-                .setHost(corfuSingleNodeHost)
-                .setPort(corfuSingleNodePort)
-                .runServer();
-
-        CorfuRuntime rt = createDefaultRuntime();
-        rt.setCacheDisabled(true);
-
-        Random rand = new Random();
-
-        UUID streamId = CorfuRuntime.getStreamID(Integer.toString(rand.nextInt()));
-
-        IStreamView s1 = rt.getStreamsView().get(streamId);
-
-        // Verify that the stream is empty
-        assertThat(s1.hasNext())
-                .isFalse();
-
-        // Generate and append random data
-        int entrySize = Integer.valueOf(PROPERTIES.getProperty("largeEntrySize"));
-        final int numEntries = 100;
-        byte[][] data = new byte[numEntries][entrySize];
-
-        for(int x = 0; x < numEntries; x++) {
-            rand.nextBytes(data[x]);
-            s1.append(data[x]);
-        }
-
-        // Read back the data and verify it is correct
-        for(int x = 0; x < numEntries; x++) {
-            ILogData entry = s1.nextUpTo(x);
-            byte[] tmp = (byte[]) entry.getPayload(rt);
-
-            assertThat(tmp).isEqualTo(data[x]);
-        }
-
-        assertThat(shutdownCorfuServer(corfuServerProcess)).isTrue();
+    private void TXBegin(CorfuRuntime rt) {
+        rt.getObjectsView().TXBuild()
+                .setType(TransactionType.OPTIMISTIC)
+                .begin();
     }
+
+    private void TXEnd(CorfuRuntime rt) {
+        rt.getObjectsView().TXEnd();
+    }
+
 }

@@ -30,6 +30,7 @@ import org.corfudb.runtime.exceptions.TrimmedException;
 import org.corfudb.runtime.exceptions.WrongEpochException;
 import org.corfudb.runtime.exceptions.unrecoverable.UnrecoverableCorfuError;
 import org.corfudb.util.CFUtils;
+import org.corfudb.util.LRU;
 
 import java.util.Comparator;
 
@@ -42,26 +43,11 @@ import java.util.Comparator;
  */
 @Slf4j
 public class AddressSpaceView extends AbstractView {
+    
 
-    /**
-     * A cache for read results.
-     */
-    final LoadingCache<Long, ILogData> readCache = Caffeine.<Long, ILogData>newBuilder()
-            .maximumSize(runtime.getParameters().getNumCacheEntries())
-            .expireAfterAccess(runtime.getParameters().getCacheExpiryTime(), TimeUnit.SECONDS)
-            .expireAfterWrite(runtime.getParameters().getCacheExpiryTime(), TimeUnit.SECONDS)
-            .recordStats()
-            .build(new CacheLoader<Long, ILogData>() {
-                @Override
-                public ILogData load(Long value) throws Exception {
-                    return cacheFetch(value);
-                }
-
-                @Override
-                public Map<Long, ILogData> loadAll(Iterable<? extends Long> keys) throws Exception {
-                    return cacheFetch((Iterable<Long>) keys);
-                }
-            });
+    final LRU readCache = new LRU((int) runtime.getParameters().getNumCacheEntries(),
+            this::cacheFetch,
+            this::cacheFetch);
 
     /**
      * Constructor for the Address Space View.
@@ -69,12 +55,14 @@ public class AddressSpaceView extends AbstractView {
     public AddressSpaceView(@Nonnull final CorfuRuntime runtime) {
         super(runtime);
         MetricRegistry metrics = runtime.getMetrics();
+        /*
         final String pfx = String.format("%s0x%x.cache.", runtime.getMpASV(), this.hashCode());
         metrics.register(pfx + "cache-size", (Gauge<Long>) readCache::estimatedSize);
         metrics.register(pfx + "evictions", (Gauge<Long>) () -> readCache.stats().evictionCount());
         metrics.register(pfx + "hit-rate", (Gauge<Double>) () -> readCache.stats().hitRate());
         metrics.register(pfx + "hits", (Gauge<Long>) () -> readCache.stats().hitCount());
         metrics.register(pfx + "misses", (Gauge<Long>) () -> readCache.stats().missCount());
+        */
     }
 
 

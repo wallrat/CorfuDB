@@ -1,11 +1,6 @@
 package org.corfudb.runtime.object;
 
-import java.util.List;
-import java.util.ListIterator;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Consumer;
@@ -19,6 +14,7 @@ import org.corfudb.runtime.exceptions.unrecoverable.UnrecoverableCorfuError;
 import org.corfudb.runtime.object.transactions.WriteSetSMRStream;
 import org.corfudb.runtime.view.Address;
 import org.corfudb.util.Utils;
+import org.corfudb.util.VLOLRU;
 
 //TODO Discard TransactionStream for building maps but not for constructing tails
 
@@ -43,6 +39,8 @@ import org.corfudb.util.Utils;
  */
 @Slf4j
 public class VersionLockedObject<T> {
+
+    public static final Map<UUID, VersionLockedObject> registry = new ConcurrentHashMap<>();
 
     /**
      * The actual underlying object.
@@ -110,6 +108,8 @@ public class VersionLockedObject<T> {
      */
     private final Supplier<T> newObjectFn;
 
+    public volatile VLOLRU undoCache = new VLOLRU(200);
+
     /**
      * The VersionLockedObject maintains a versioned object which is backed by an ISMRStream,
      * and is optionally backed by an additional optimistic update stream.
@@ -140,6 +140,7 @@ public class VersionLockedObject<T> {
         this.upcallResults = new ConcurrentHashMap<>();
 
         lock = new StampedLock();
+        registry.put(getID(), this);
     }
 
     /**
@@ -343,6 +344,7 @@ public class VersionLockedObject<T> {
                     if (saveUpcall) {
                         pendingUpcalls.add(t.getToken().getTokenValue());
                     }
+                    undoCache.put(t.getToken().getTokenValue(), Arrays.asList(entry));
                     return true;
                 },
                 t -> {
@@ -530,6 +532,11 @@ public class VersionLockedObject<T> {
         return ret;
     }
 
+    boolean smrEq(List<SMREntry> a, List<SMREntry> b) {
+        if (a.size() != b.size()) return false;
+        return true;
+    }
+
     /**
      * Roll back the given stream by applying undo records in reverse order
      * from the current stream position until rollbackVersion.
@@ -548,27 +555,29 @@ public class VersionLockedObject<T> {
         }
 
         List<SMREntry> entries = stream.current();
-
+        List<SMREntry> undos = undoCache.get(stream.pos());
         while (entries != null) {
-            if (entries.stream().allMatch(x -> x.isUndoable())) {
-                // start from the end, process one at a time
-                ListIterator<SMREntry> it =
-                        entries.listIterator(entries.size());
-                while (it.hasPrevious()) {
-                    applyUndoRecordUnsafe(it.previous());
+            for (int x = entries.size() - 1; 0 <= x; x--) {
+                if(!entries.get(x).isUndoable()) {
+                    if (undos == null || undos.get(x).getUndoRecord() == null) {
+                        if (undos != null && undos.get(x).getUndoRecord() == null) {
+                            log.error("rollbackStreamUnsafe: vlo cache hit but null undo record {} is undoable {}",
+                                    undos.get(x), undos.get(x).isUndoable());
+                        }
+                        throw new NoRollbackException(Optional.of(entries.get(x)),
+                                stream.pos(), rollbackVersion);
+                    } else {
+                        entries.get(x).setUndoRecord(undos.get(x).getUndoRecord());
+                    }
                 }
-            } else {
-                Optional<SMREntry> entry = entries.stream().findFirst();
-                throw new NoRollbackException(entry, stream.pos(), rollbackVersion);
+                applyUndoRecordUnsafe(entries.get(x));
             }
-
             entries = stream.previous();
-
+            undos = undoCache.get(stream.pos());
             if (stream.pos() <= rollbackVersion) {
                 return;
             }
         }
-
         throw new NoRollbackException(stream.pos(), rollbackVersion);
     }
 

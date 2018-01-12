@@ -1,6 +1,7 @@
 package org.corfudb.runtime.view;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -10,6 +11,8 @@ import javax.annotation.Nullable;
 
 import lombok.extern.slf4j.Slf4j;
 
+import org.corfudb.protocols.logprotocol.MultiObjectSMREntry;
+import org.corfudb.protocols.logprotocol.MultiSMREntry;
 import org.corfudb.protocols.logprotocol.StreamCOWEntry;
 import org.corfudb.protocols.wireprotocol.ILogData;
 import org.corfudb.protocols.wireprotocol.TokenResponse;
@@ -21,6 +24,7 @@ import org.corfudb.runtime.exceptions.AppendException;
 import org.corfudb.runtime.exceptions.OverwriteException;
 import org.corfudb.runtime.exceptions.StaleTokenException;
 import org.corfudb.runtime.exceptions.TransactionAbortedException;
+import org.corfudb.runtime.object.VersionLockedObject;
 import org.corfudb.runtime.object.transactions.TransactionalContext;
 import org.corfudb.runtime.view.stream.IStreamView;
 import org.corfudb.util.Utils;
@@ -148,6 +152,14 @@ public class StreamsView extends AbstractView {
 
             // Attempt to write to the log
             try {
+
+                if (object instanceof MultiObjectSMREntry) {
+                    MultiObjectSMREntry mso = (MultiObjectSMREntry) object;
+                    for (Map.Entry<UUID, MultiSMREntry> entry : mso.getEntryMap().entrySet()) {
+                        VersionLockedObject.registry.get(entry.getKey()).undoCache.put(tokenResponse
+                                .getToken().getTokenValue(),entry.getValue().getUpdates());
+                    }
+                }
                 runtime.getAddressSpaceView().write(tokenResponse, object);
                 // If we're here, we succeeded, return the acquired token
                 return tokenResponse.getTokenValue();
