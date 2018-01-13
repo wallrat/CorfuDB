@@ -15,7 +15,7 @@ import static org.corfudb.integration.AbstractIT.createDefaultRuntime;
 
 public class StreamIT {
 
-    //@Test
+    @Test
     public void RunLoad() throws Exception {
         CorfuRuntime runtime = createDefaultRuntime();
 

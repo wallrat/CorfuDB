@@ -56,7 +56,7 @@ public class SMREntry extends LogEntry implements ISMRConsumable {
      * because undo records may be NULL.
      */
     @Getter
-    public boolean undoable;
+    public volatile boolean undoable;
 
     /** The upcall result, if present. */
     @Getter

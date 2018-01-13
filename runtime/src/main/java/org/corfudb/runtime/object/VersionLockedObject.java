@@ -514,6 +514,12 @@ public class VersionLockedObject<T> {
             // If there was no previously calculated undo entry
             if (undoRecordTarget != null) {
                 // calculate the undo record
+                if (undoRecordTarget
+                        .getUndoRecord(object, entry.getSMRArguments()) == null) {
+                    //System.out.println("Danger");
+                }
+                //System.out.println("undo record " + undoRecordTarget
+                  //      .getUndoRecord(object, entry.getSMRArguments()) + " for " + entry);
                 entry.setUndoRecord(undoRecordTarget
                         .getUndoRecord(object, entry.getSMRArguments()));
                 log.trace("Apply[{}] Undo->{}", this, entry.getUndoRecord());
@@ -559,16 +565,29 @@ public class VersionLockedObject<T> {
         while (entries != null) {
             for (int x = entries.size() - 1; 0 <= x; x--) {
                 if(!entries.get(x).isUndoable()) {
-                    if (undos == null || undos.get(x).getUndoRecord() == null) {
+                    //if (undos == null || undos.get(x).getUndoRecord() == null) {
+                        /**
                         if (undos != null && undos.get(x).getUndoRecord() == null) {
                             log.error("rollbackStreamUnsafe: vlo cache hit but null undo record {} is undoable {}",
                                     undos.get(x), undos.get(x).isUndoable());
+                            throw new NoRollbackException(Optional.of(entries.get(x)),
+                                    stream.pos(), rollbackVersion);
                         }
                         throw new NoRollbackException(Optional.of(entries.get(x)),
                                 stream.pos(), rollbackVersion);
-                    } else {
+                         **/
+                   // } else {
+                    if (undos!= null && undos.get(x) != null && undos.get(x).isUndoable()) {
                         entries.get(x).setUndoRecord(undos.get(x).getUndoRecord());
                     }
+
+
+                    if(!entries.get(x).isUndoable()) {
+                        throw new NoRollbackException(Optional.of(entries.get(x)),
+                                stream.pos(), rollbackVersion);
+                    }
+
+                    //}
                 }
                 applyUndoRecordUnsafe(entries.get(x));
             }
