@@ -24,7 +24,7 @@ Options:
 
 (defn print-query [endpoint] (do
                                (println (format "Query %s:" endpoint))
-                               (let [q (.. (get-layout-client (get-router server localcmd) 0) (getLayout))]
+                               (let [q (.. (get-layout-client (get-router endpoint localcmd) 0) (getLayout))]
                                  (println (.. (.. q (get)) (toString)))
                                )))
 

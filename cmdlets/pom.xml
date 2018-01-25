@@ -78,6 +78,13 @@
             <artifactId>commons-fileupload</artifactId>
             <version>1.3.3</version>
         </dependency>
+        <!-- Resolve clojure warning. -->
+        <dependency>
+            <groupId>net.cgrand</groupId>
+            <artifactId>parsley</artifactId>
+            <version>0.9.3</version>
+        </dependency>
+
 
     </dependencies>
 
