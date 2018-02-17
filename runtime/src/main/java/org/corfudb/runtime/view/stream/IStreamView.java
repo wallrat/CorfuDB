@@ -148,21 +148,7 @@ public interface IStreamView extends
     @Nullable
     ILogData nextUpTo(long maxGlobal);
 
-    /** Retrieve all of the entries from this stream, up to the tail of this
-     *  stream. If there are no entries present, this function
-     *  will return an empty list. If there  are holes present in the log,
-     *  they will be filled.
-     *
-     *  <p>Note: the default implementation is thread-safe only if the
-     *  implementation of read is synchronized.
-     *
-     * @return          The next entries in the stream, or an empty list,
-     *                  if no entries are available.
-     */
-    @Nonnull
-    default List<ILogData> remaining() {
-        return remainingUpTo(Address.MAX);
-    }
+
 
     /** Retrieve all of the entries from this stream, up to the address given or
      *  the tail of the stream. If there are no entries present, this function
