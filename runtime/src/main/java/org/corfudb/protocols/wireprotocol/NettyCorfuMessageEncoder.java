@@ -15,25 +15,12 @@ import java.util.function.LongBinaryOperator;
 @Slf4j
 public class NettyCorfuMessageEncoder extends MessageToByteEncoder<CorfuMsg> {
 
-
-    final LongAccumulator maxValue = new LongAccumulator(Math::max, Long.MIN_VALUE);
-
     @Override
     protected void encode(ChannelHandlerContext channelHandlerContext,
                           CorfuMsg corfuMsg,
                           ByteBuf byteBuf) throws Exception {
         try {
             corfuMsg.serialize(byteBuf);
-            if(log.isDebugEnabled()) {
-                long prev = maxValue.get();
-                maxValue.accumulate(byteBuf.readableBytes());
-                long curr = maxValue.get();
-                // The max value has been updated.
-                if (prev < curr) {
-                    log.debug("encode: New max write buffer found {}", curr);
-                }
-            }
-
         } catch (Exception e) {
             log.error("encode: Error during serialization!", e);
         }

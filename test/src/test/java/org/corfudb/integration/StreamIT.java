@@ -4,7 +4,9 @@ import org.corfudb.protocols.wireprotocol.ILogData;
 import org.corfudb.runtime.CorfuRuntime;
 import org.corfudb.runtime.view.stream.IStreamView;
 import org.junit.Before;
+import org.junit.Test;
 
+import java.util.Collections;
 import java.util.Random;
 import java.util.UUID;
 
@@ -13,56 +15,46 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * A set integration tests that exercise the stream API.
  */
+public class StreamIT {
 
-public class StreamIT extends AbstractIT {
-    static String corfuSingleNodeHost;
-    static int corfuSingleNodePort;
 
-    @Before
-    public void loadProperties() throws Exception {
-        corfuSingleNodeHost = (String) PROPERTIES.get("corfuSingleNodeHost");
-        corfuSingleNodePort = Integer.parseInt((String) PROPERTIES.get("corfuSingleNodePort"));
-    }
-
-//    @Test
+    @Test
     public void simpleStreamTest() throws Exception {
+        CorfuRuntime[] rt = new CorfuRuntime[4];
+        rt[0] = new CorfuRuntime("10.33.83.31:9000").connect();
+        rt[1] = new CorfuRuntime("10.33.83.31:9000").connect();
+        rt[2] = new CorfuRuntime("10.33.83.31:9000").connect();
+        rt[3] = new CorfuRuntime("10.33.83.31:9000").connect();
+        
 
-        Process corfuServerProcess = new CorfuServerRunner()
-                .setHost(corfuSingleNodeHost)
-                .setPort(corfuSingleNodePort)
-                .runServer();
+        final int numThreads = 20;
+        final int numIter = 50000;
+        Thread[] threads = new Thread[numThreads];
 
-        CorfuRuntime rt = createDefaultRuntime();
-        rt.setCacheDisabled(true);
+        for (int x = 0; x < numThreads; x++) {
+            Runnable r = () -> {
+                Random rand = new Random();
+                for (int y = 0; y < numIter; y++) {
+                    int tokens = 0;
+                    rt[rand.nextInt(4)].getSequencerView().nextToken(Collections.emptySet(), tokens);
+                }
+            };
 
-        Random rand = new Random();
-
-        UUID streamId = CorfuRuntime.getStreamID(Integer.toString(rand.nextInt()));
-
-        IStreamView s1 = rt.getStreamsView().get(streamId);
-
-        // Verify that the stream is empty
-        assertThat(s1.hasNext())
-                .isFalse();
-
-        // Generate and append random data
-        int entrySize = Integer.valueOf(PROPERTIES.getProperty("largeEntrySize"));
-        final int numEntries = 100;
-        byte[][] data = new byte[numEntries][entrySize];
-
-        for(int x = 0; x < numEntries; x++) {
-            rand.nextBytes(data[x]);
-            s1.append(data[x]);
+            threads[x] = new Thread(r);
         }
 
-        // Read back the data and verify it is correct
-        for(int x = 0; x < numEntries; x++) {
-            ILogData entry = s1.nextUpTo(x);
-            byte[] tmp = (byte[]) entry.getPayload(rt);
-
-            assertThat(tmp).isEqualTo(data[x]);
+        long s1 = System.currentTimeMillis();
+        for (int x = 0; x < numThreads; x++) {
+            threads[x].start();
         }
 
-        assertThat(shutdownCorfuServer(corfuServerProcess)).isTrue();
+        for (int x = 0; x < numThreads; x++) {
+            threads[x].join();
+        }
+
+        long s2 = System.currentTimeMillis();
+
+        System.out.println("total time " + (s2 - s1));
+        System.out.println("rpc/ms " + ((numIter * numThreads) / (s2 - s1)));
     }
 }

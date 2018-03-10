@@ -8,6 +8,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,10 +77,7 @@ public class NettyServerRouter extends ChannelInboundHandlerAdapter
                 e);
     }
 
-    protected final ExecutorService handlerWorkers =
-            new ForkJoinPool(Runtime.getRuntime().availableProcessors(),
-                    new ServerThreadFactory(),
-                    NettyServerRouter::handleUncaughtException, true);
+    protected final ExecutorService handlerWorkers = Executors.newFixedThreadPool(8);
 
     /**
      * This map stores the mapping from message type to netty server handler.
@@ -179,8 +177,10 @@ public class NettyServerRouter extends ChannelInboundHandlerAdapter
                         log.trace("Message routed to {}: {}", handler.getClass().getSimpleName(),
                                 msg);
                     }
+                   // log.info("Thread ID {}", Thread.currentThread().getId());
                     handlerWorkers.submit(() -> {
                         try {
+                     //       log.info("Thread ID handoff {}", Thread.currentThread().getId());
                             handler.handleMessage(m, ctx, this);
                         } catch (Throwable t) {
                             log.error("channelRead: Handling {} failed due to {}:{}",

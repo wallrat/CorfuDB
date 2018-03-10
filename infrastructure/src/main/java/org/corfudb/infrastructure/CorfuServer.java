@@ -455,6 +455,7 @@ public class CorfuServer {
                         context.getServerConfig(String.class, "--HandshakeTimeout")));
                 // Route the message to the server class.
                 ch.pipeline().addLast(router);
+
             }
         };
     }
