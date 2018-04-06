@@ -184,6 +184,7 @@ public class StreamsView extends AbstractView {
                 // the epoch changed from when we grabbed the token from sequencer
                 log.warn("append[{}]: StaleToken , streams {}", tokenResponse.getTokenValue(),
                         streamIDs.stream().map(Utils::toReadableId).collect(Collectors.toSet()));
+                runtime.invalidateLayout();
 
                 throw new TransactionAbortedException(
                         conflictInfo,

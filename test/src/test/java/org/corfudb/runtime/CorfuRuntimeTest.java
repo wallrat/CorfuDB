@@ -233,8 +233,6 @@ public class CorfuRuntimeTest extends AbstractViewTest {
             }
         }
 
-        addSingleServer(SERVERS.PORT_0);
-
         CorfuRuntime runtime = getDefaultRuntime();
         TimeoutHandler th = new TimeoutHandler(runtime, TIMEOUT_CORFU_RUNTIME_IN_MS);
 

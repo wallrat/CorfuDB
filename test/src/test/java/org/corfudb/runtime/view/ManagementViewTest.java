@@ -407,9 +407,11 @@ public class ManagementViewTest extends AbstractViewTest {
         induceSequencerFailureAndWait();
 
         // Block until new sequencer reaches READY state.
-        getCorfuRuntime().getSequencerView().nextToken(
+        while (getCorfuRuntime().getSequencerView().nextToken(
                 Collections.singleton(CorfuRuntime.getStreamID("streamA")),
-                0);
+                0).getEpoch() < 0) {
+            Sleep.sleepUninterruptibly(PARAMETERS.TIMEOUT_VERY_SHORT);
+        }
         // verify that a failover sequencer was started with the correct starting-tail
         //
         assertThat(getSequencer(SERVERS.PORT_1).getGlobalLogTail().get()).isEqualTo(beforeFailure);
@@ -731,6 +733,12 @@ public class ManagementViewTest extends AbstractViewTest {
         assertThat(resetDetected
                 .tryAcquire(PARAMETERS.TIMEOUT_NORMAL.toMillis(), TimeUnit.MILLISECONDS))
                 .isTrue();
+
+        // Block until new sequencer reaches READY state.
+        while (getCorfuRuntime().getSequencerView().nextToken(
+                Collections.emptySet(), 0).getEpoch() < 0) {
+            Sleep.sleepUninterruptibly(PARAMETERS.TIMEOUT_VERY_SHORT);
+        }
 
         // We should be able to request a token now.
         corfuRuntime.getSequencerView().nextToken(Collections.singleton(CorfuRuntime

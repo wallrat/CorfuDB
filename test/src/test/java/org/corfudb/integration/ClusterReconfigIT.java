@@ -215,8 +215,8 @@ public class ClusterReconfigIT extends AbstractIT {
         Map<Long, LogData> map_1 = getAllData(corfuRuntime, "localhost:9001", lastAddress);
         Map<Long, LogData> map_2 = getAllData(corfuRuntime, "localhost:9002", lastAddress);
 
-        assertThat(map_1.equals(map_0)).isTrue();
-        assertThat(map_2.equals(map_0)).isTrue();
+        assertThat(map_1.entrySet()).containsOnlyElementsOf(map_0.entrySet());
+        assertThat(map_2.entrySet()).containsOnlyElementsOf(map_0.entrySet());
     }
 
     /**

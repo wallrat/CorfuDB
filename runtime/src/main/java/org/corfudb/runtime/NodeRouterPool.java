@@ -18,6 +18,7 @@ import org.corfudb.runtime.clients.IClientRouter;
 @Slf4j
 public class NodeRouterPool {
 
+    @Getter
     private final Map<String, IClientRouter> nodeRouters = new ConcurrentHashMap<>();
 
     /**

@@ -115,6 +115,7 @@ public class BackpointerStreamView extends AbstractQueuedStreamView {
                         log.debug("Deacquisition requested abort");
                         return -1L;
                 }
+                runtime.invalidateLayout();
                 // Request a new token, informing the sequencer we were
                 // overwritten.
                 tokenResponse = runtime.getSequencerView()

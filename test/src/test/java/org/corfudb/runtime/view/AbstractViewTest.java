@@ -33,6 +33,7 @@ import org.corfudb.runtime.clients.ManagementHandler;
 import org.corfudb.runtime.clients.SequencerHandler;
 import org.corfudb.runtime.clients.TestClientRouter;
 import org.corfudb.runtime.clients.TestRule;
+import org.corfudb.util.CFUtils;
 import org.corfudb.util.NodeLocator;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -215,6 +216,9 @@ public abstract class AbstractViewTest extends AbstractCorfuTest {
      */
     public void addSingleServer(int port) {
         new TestServer(port).addToTest(port, this);
+        CFUtils.getUninterruptibly(getManagementServer(port)
+                .getManagementAgent()
+                .getSequencerBootstrappedFuture());
     }
 
 

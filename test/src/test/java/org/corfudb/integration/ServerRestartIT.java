@@ -6,10 +6,7 @@ import org.corfudb.runtime.MultiCheckpointWriter;
 import org.corfudb.runtime.clients.SequencerClient;
 import org.corfudb.runtime.collections.CorfuTable;
 import org.corfudb.runtime.collections.StringIndexer;
-import org.corfudb.runtime.exceptions.AbortCause;
-import org.corfudb.runtime.exceptions.NetworkException;
-import org.corfudb.runtime.exceptions.StaleTokenException;
-import org.corfudb.runtime.exceptions.TransactionAbortedException;
+import org.corfudb.runtime.exceptions.*;
 import org.corfudb.util.CFUtils;
 import org.corfudb.runtime.collections.SMRMap;
 import org.junit.Before;
@@ -278,7 +275,8 @@ public class ServerRestartIT extends AbstractIT {
 
                 if (!txState) {
                     return false;
-                };
+                }
+                ;
             }
 
             return true;
@@ -473,18 +471,25 @@ public class ServerRestartIT extends AbstractIT {
         final CorfuRuntime corfuRuntime = createDefaultRuntime();
 
         // wait for this server long enough to start (by requesting token service)
-        TokenResponse firsttr = corfuRuntime.getSequencerView().nextToken(Collections.emptySet(),
-                1);
+        do {
+            if (corfuRuntime.getSequencerView().nextToken(Collections.emptySet(), 1)
+                    .getEpoch() >= 0) {
+                break;
+            }
+        } while (true);
 
         assertThat(shutdownCorfuServer(corfuServerProcess)).isTrue();
 
         corfuServerProcess = runCorfuServer();
 
         corfuRuntime.invalidateLayout();
-        TokenResponse tr = corfuRuntime.getSequencerView().nextToken(Collections.emptySet(), 1);
+        TokenResponse tr = null;
 
-        assertThat(tr.getEpoch())
-                .isEqualTo(1);
+        while (tr == null || tr.getEpoch() < 0) {
+            tr = corfuRuntime.getSequencerView().nextToken(Collections.emptySet(), 1);
+        }
+
+        assertThat(tr.getEpoch()).isEqualTo(1);
 
         // Force the token response to have epoch = 0, to simulate a request received in previous epoch
         TokenResponse mockTr = new TokenResponse(tr.getToken().getTokenValue(), tr.getEpoch() - 1, Collections.emptyMap());

@@ -127,17 +127,6 @@ public class SequencerServer extends AbstractServer {
     @Setter
     private volatile long readyStateEpoch = -1;
 
-    @Override
-    public boolean isServerReadyToHandleMsg(CorfuMsg msg) {
-        if ((readyStateEpoch != serverContext.getServerEpoch())
-                && (!msg.getMsgType().equals(CorfuMsgType.BOOTSTRAP_SEQUENCER))) {
-            log.warn("Rejecting msg at sequencer : sequencerStateEpoch:{}, serverEpoch:{}, "
-                    + "msg:{}", readyStateEpoch, serverContext.getServerEpoch(), msg);
-            return false;
-        }
-        return true;
-    }
-
     /**
      * Returns a new SequencerServer.
      * @param serverContext context object providing parameters and objects
@@ -297,7 +286,7 @@ public class SequencerServer extends AbstractServer {
         // issued.
         long responseGlobalTail = (req.getStreams().size() == 0) ? globalLogTail.get() - 1 :
                 maxStreamGlobalTail;
-        Token token = new Token(responseGlobalTail, r.getServerEpoch());
+        Token token = new Token(responseGlobalTail, readyStateEpoch);
         r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
                 TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));
     }
@@ -333,7 +322,7 @@ public class SequencerServer extends AbstractServer {
         final long readyEpoch = msg.getPayload().getReadyStateEpoch();
 
         // Stale bootstrap request should be discarded.
-        if (readyStateEpoch > readyEpoch) {
+        if (readyStateEpoch >= readyEpoch) {
             log.info("Sequencer already bootstrapped at epoch {}. "
                     + "Discarding bootstrap request with epoch {}", readyStateEpoch, readyEpoch);
             r.sendResponse(ctx, msg, CorfuMsgType.NACK.msg());
@@ -353,7 +342,8 @@ public class SequencerServer extends AbstractServer {
         // Note, this is correct, but conservative (may lead to false abort).
         // It is necessary because we reset the sequencer.
         //
-        if (initialToken > globalLogTail.get()) {
+//        if (initialToken > globalLogTail.get()) {
+        if (!streamTails.isEmpty()) {
             globalLogTail.set(initialToken);
             maxConflictWildcard = initialToken - 1;
             conflictToGlobalTailCache.invalidateAll();
@@ -362,6 +352,7 @@ public class SequencerServer extends AbstractServer {
             streamTailToGlobalTailMap.clear();
             streamTailToGlobalTailMap.putAll(streamTails);
         }
+//        }
 
         // Mark the sequencer as ready after the tails have been populated.
         readyStateEpoch = readyEpoch;
@@ -410,10 +401,9 @@ public class SequencerServer extends AbstractServer {
      */
     private void handleRawToken(CorfuPayloadMsg<TokenRequest> msg,
                                 ChannelHandlerContext ctx, IServerRouter r) {
-        final long serverEpoch = r.getServerEpoch();
         final TokenRequest req = msg.getPayload();
 
-        Token token = new Token(globalLogTail.getAndAdd(req.getNumTokens()), serverEpoch);
+        Token token = new Token(globalLogTail.getAndAdd(req.getNumTokens()), readyStateEpoch);
         r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
                 TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token, Collections.emptyMap())));
 
@@ -434,7 +424,6 @@ public class SequencerServer extends AbstractServer {
      */
     private void handleTxToken(CorfuPayloadMsg<TokenRequest> msg,
                                ChannelHandlerContext ctx, IServerRouter r) {
-        final long serverEpoch = r.getServerEpoch();
         final TokenRequest req = msg.getPayload();
 
         // Since Java does not allow an easy way for a function to return multiple values, this
@@ -448,7 +437,7 @@ public class SequencerServer extends AbstractServer {
         TokenType tokenType = txnCanCommit(req.getTxnResolution(), conflictKey);
         if (tokenType != TokenType.NORMAL) {
             // If the txn aborts, then DO NOT hand out a token.
-            Token token = new Token(Address.ABORTED, serverEpoch);
+            Token token = new Token(Address.ABORTED, readyStateEpoch);
             r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(tokenType,
                     conflictKey.get(), token, Collections.emptyMap())));
             return;
@@ -471,7 +460,6 @@ public class SequencerServer extends AbstractServer {
      */
     private void handleAllocation(CorfuPayloadMsg<TokenRequest> msg,
                                   ChannelHandlerContext ctx, IServerRouter r) {
-        final long serverEpoch = r.getServerEpoch();
         final TokenRequest req = msg.getPayload();
 
         // extend the tail of the global log by the requested # of tokens
@@ -519,7 +507,7 @@ public class SequencerServer extends AbstractServer {
                 currentTail, backPointerMap.build());
         // return the token response with the new global tail
         // and the streams backpointers
-        Token token = new Token(currentTail, serverEpoch);
+        Token token = new Token(currentTail, readyStateEpoch);
         r.sendResponse(ctx, msg, CorfuMsgType.TOKEN_RES.payloadMsg(new TokenResponse(
                 TokenType.NORMAL, TokenResponse.NO_CONFLICT_KEY, token,
                 backPointerMap.build())));

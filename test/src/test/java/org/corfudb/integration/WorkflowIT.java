@@ -6,6 +6,7 @@ import org.corfudb.runtime.MultiCheckpointWriter;
 import org.corfudb.runtime.collections.CorfuTable;
 import org.corfudb.runtime.view.Layout;
 import org.corfudb.runtime.view.LayoutBuilder;
+import org.corfudb.util.Sleep;
 import org.junit.Test;
 
 import java.time.Duration;
@@ -133,9 +134,13 @@ public class WorkflowIT extends AbstractIT {
         // the sequencers/layouts/segments nodes include the first and third node
         assertThat(n1Rt.getLayoutView().getLayout()).isEqualTo(expectedLayout);
 
+        Sleep.SECONDS.sleepRecoverably(1L);
+
         // Force remove node 3
         n1Rt.getManagementView().forceRemoveNode(getConnectionString(n3Port), workflowNumRetry,
                 timeout, pollPeriod);
+
+        Sleep.SECONDS.sleepRecoverably(1L);
 
         n1Rt.invalidateLayout();
         assertThat(n1Rt.getLayoutView().getLayout().getAllServers().size()).isEqualTo(1);
@@ -296,8 +301,14 @@ public class WorkflowIT extends AbstractIT {
         // Force remove the "failed" node
         n0Rt.getManagementView().forceRemoveNode(getConnectionString(n1Port), workflowNumRetry,
                 timeout, pollPeriod);
+
+        Sleep.SECONDS.sleepRecoverably(1L);
+
         n0Rt.getManagementView().forceRemoveNode(getConnectionString(n2Port), workflowNumRetry,
                 timeout, pollPeriod);
+
+        Sleep.SECONDS.sleepRecoverably(1L);
+
         n0Rt.invalidateLayout();
         assertThat(n0Rt.getLayoutView().getLayout().getAllServers().size()).isEqualTo(clusterSizeN1);
 
